@@ -1,0 +1,235 @@
+{
+  "version": "1.0",
+  "name": "复杂工作流测试",
+  "description": "验证一对多输出和多对一输入功能",
+  "nodes": [
+    {
+      "id": "init",
+      "type": "bash",
+      "name": "初始化数据",
+      "description": "生成基础数据，输出会被传递给两个下游节点",
+      "inputs": {},
+      "output": {
+        "type": "object",
+        "properties": {
+          "baseUrl": { "type": "string" },
+          "apiKey": { "type": "string" },
+          "timestamp": { "type": "string" }
+        },
+        "required": ["baseUrl", "apiKey", "timestamp"]
+      },
+      "config": {
+        "script": "./scripts/init-data.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "fetch-user",
+      "type": "bash",
+      "name": "获取用户数据",
+      "description": "使用 init 的数据获取用户信息",
+      "inputs": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "baseUrl": { "type": "string" },
+            "apiKey": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "userName": { "type": "string" },
+          "email": { "type": "string" }
+        },
+        "required": ["userId", "userName", "email"]
+      },
+      "config": {
+        "script": "./scripts/fetch-user.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "fetch-config",
+      "type": "bash",
+      "name": "获取配置数据",
+      "description": "使用 init 的数据获取配置信息",
+      "inputs": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "baseUrl": { "type": "string" },
+            "apiKey": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "maxRetries": { "type": "number" },
+          "timeout": { "type": "number" },
+          "featureFlags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["maxRetries", "timeout", "featureFlags"]
+      },
+      "config": {
+        "script": "./scripts/fetch-config.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "merge-data",
+      "type": "python",
+      "name": "合并数据",
+      "description": "接收两个上游节点的输出并合并",
+      "inputs": {
+        "userData": {
+          "type": "object",
+          "properties": {
+            "userId": { "type": "string" },
+            "userName": { "type": "string" },
+            "email": { "type": "string" }
+          }
+        },
+        "appConfig": {
+          "type": "object",
+          "properties": {
+            "maxRetries": { "type": "number" },
+            "timeout": { "type": "number" },
+            "featureFlags": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "merged": { "type": "boolean" },
+          "summary": { "type": "string" },
+          "itemCount": { "type": "number" }
+        },
+        "required": ["merged", "summary", "itemCount"]
+      },
+      "config": {
+        "script": "./scripts/merge-data.py",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "report",
+      "type": "node",
+      "name": "生成报告",
+      "description": "使用合并后的数据生成最终报告",
+      "inputs": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "merged": { "type": "boolean" },
+            "summary": { "type": "string" },
+            "itemCount": { "type": "number" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "reportId": { "type": "string" },
+          "status": { "type": "string" },
+          "generatedAt": { "type": "string" }
+        },
+        "required": ["reportId", "status", "generatedAt"]
+      },
+      "config": {
+        "script": "./scripts/generate-report.js",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "claude-analysis",
+      "type": "claude-code",
+      "name": "AI 数据分析",
+      "description": "使用 Claude Code 对合并数据进行智能分析并生成报告",
+      "inputs": {
+        "mergedData": {
+          "type": "object",
+          "properties": {
+            "merged": { "type": "boolean" },
+            "summary": { "type": "string" },
+            "itemCount": { "type": "number" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "analysis": { "type": "string" },
+          "keyFindings": { "type": "array", "items": { "type": "string" } },
+          "recommendations": { "type": "array", "items": { "type": "string" } },
+          "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required": ["analysis", "keyFindings", "recommendations", "riskLevel", "confidence"]
+      },
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/analysis-report.md",
+          "template": true
+        },
+        "inputMapping": {
+          "mergedData": {
+            "target": "markdown",
+            "section": "input"
+          }
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "analysis-output.json",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash"]
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-init-to-user",
+      "from": { "nodeId": "init" },
+      "to": { "nodeId": "fetch-user", "input": "config" }
+    },
+    {
+      "id": "edge-init-to-config",
+      "from": { "nodeId": "init" },
+      "to": { "nodeId": "fetch-config", "input": "config" }
+    },
+    {
+      "id": "edge-user-to-merge",
+      "from": { "nodeId": "fetch-user" },
+      "to": { "nodeId": "merge-data", "input": "userData" }
+    },
+    {
+      "id": "edge-config-to-merge",
+      "from": { "nodeId": "fetch-config" },
+      "to": { "nodeId": "merge-data", "input": "appConfig" }
+    },
+    {
+      "id": "edge-merge-to-report",
+      "from": { "nodeId": "merge-data" },
+      "to": { "nodeId": "report", "input": "data" }
+    },
+    {
+      "id": "edge-merge-to-claude",
+      "from": { "nodeId": "merge-data" },
+      "to": { "nodeId": "claude-analysis", "input": "mergedData" }
+    }
+  ]
+}

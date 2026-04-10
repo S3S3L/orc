@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORC Workflow Viewer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .container { display: flex; height: 100vh; }
+    #graph-panel { flex: 1; background: #1a1a2e; }
+    #sidebar { width: 400px; background: #16213e; color: #fff; overflow-y: auto; padding: 20px; }
+    .panel-header { font-size: 18px; font-weight: bold; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+    .node-list { list-style: none; }
+    .node-item { padding: 12px; margin: 8px 0; background: #0f3460; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .node-item:hover { background: #e94560; }
+    .node-item.active { background: #e94560; }
+    .node-item .node-id { font-weight: bold; }
+    .node-item .node-type { font-size: 12px; color: #aaa; }
+    .node-item .node-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-top: 4px; }
+    .status-pending { background: #666; }
+    .status-running { background: #3498db; }
+    .status-success { background: #27ae60; }
+    .status-failed { background: #e74c3c; }
+    .status-skipped { background: #9b59b6; }
+    #toolbar { position: absolute; top: 10px; left: 10px; z-index: 1000; display: flex; gap: 10px; }
+    .btn { padding: 10px 20px; background: #e94560; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn:hover { background: #ff6b6b; }
+    .btn:disabled { background: #666; cursor: not-allowed; }
+    #log-panel { margin-top: 20px; }
+    #log-content { background: #0a0a0a; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+    .detail-section { margin: 20px 0; }
+    .detail-label { font-size: 12px; color: #aaa; margin-bottom: 8px; }
+    .detail-value { background: #0f3460; padding: 10px; border-radius: 6px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="btn" id="run-btn" onclick="runWorkflow()">Run Workflow</button>
+    <button class="btn" id="refresh-btn" onclick="refreshStatus()">Refresh</button>
+    <button class="btn" id="fit-btn" onclick="fitGraph()">Fit</button>
+  </div>
+
+  <div class="container">
+    <div id="graph-panel"></div>
+    <div id="sidebar">
+      <div class="panel-header">Workflow: <span id="workflow-name">-</span></div>
+
+      <div class="detail-section">
+        <div class="detail-label">Nodes</div>
+        <ul class="node-list" id="node-list"></ul>
+      </div>
+
+      <div class="detail-section" id="detail-panel" style="display: none;">
+        <div class="detail-label">Selected Node</div>
+        <div class="detail-value" id="node-detail"></div>
+      </div>
+
+      <div id="log-panel">
+        <div class="detail-label">Execution Log</div>
+        <div id="log-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let cy;
+    let workflowData = null;
+    let executionState = new Map();
+
+    async function loadWorkflow() {
+      try {
+        const res = await fetch('/api/workflow');
+        workflowData = await res.json();
+        document.getElementById('workflow-name').textContent = workflowData.name;
+        renderGraph();
+        renderNodeList();
+      } catch (e) {
+        console.error('Failed to load workflow:', e);
+      }
+    }
+
+    function renderGraph() {
+      const elements = [];
+
+      // Add nodes
+      for (const node of workflowData.nodes) {
+        elements.push({
+          data: { id: node.id, label: node.name || node.id, type: node.type, status: 'pending' }
+        });
+      }
+
+      // Add edges
+      for (const edge of workflowData.edges) {
+        elements.push({
+          data: {
+            id: edge.id,
+            source: edge.from.nodeId,
+            target: edge.to.nodeId,
+            label: edge.to.input
+          }
+        });
+      }
+
+      cy = cytoscape({
+        container: document.getElementById('graph-panel'),
+        elements,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-color': 'node-color',
+              'label': 'data(label)',
+              'color': '#fff',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'width': 120,
+              'height': 60,
+              'border-width': 2,
+              'border-color': '#fff',
+              'font-size': '12px',
+              'font-weight': 'bold'
+            }
+          },
+          {
+            selector: 'node[type="bash"]',
+            style: { 'background-color': '#3498db' }
+          },
+          {
+            selector: 'node[type="python"]',
+            style: { 'background-color': '#f39c12' }
+          },
+          {
+            selector: 'node[type="node"]',
+            style: { 'background-color': '#2ecc71' }
+          },
+          {
+            selector: 'node[type="claude-code"]',
+            style: { 'background-color': '#9b59b6' }
+          },
+          {
+            selector: 'node[status="running"]',
+            style: { 'border-width': 4, 'border-color': '#f1c40f' }
+          },
+          {
+            selector: 'node[status="success"]',
+            style: { 'background-color': '#27ae60' }
+          },
+          {
+            selector: 'node[status="failed"]',
+            style: { 'background-color': '#c0392b', 'border-color': '#e74c3c' }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 2,
+              'line-color': '#666',
+              'target-arrow-color': '#666',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'label': 'data(label)',
+              'font-size': '10px',
+              'color': '#aaa'
+            }
+          }
+        ],
+        layout: {
+          name: 'breadthfirst',
+          directed: true,
+          padding: 50,
+          spacingFactor: 1.5
+        }
+      });
+
+      cy.on('tap', 'node', function(evt) {
+        showNodeDetail(evt.target.data());
+      });
+    }
+
+    function renderNodeList() {
+      const list = document.getElementById('node-list');
+      list.innerHTML = workflowData.nodes.map(node => `
+        <li class="node-item" data-node-id="${node.id}" onclick="selectNode('${node.id}')">
+          <div class="node-id">${node.name || node.id}</div>
+          <div class="node-type">${node.type}</div>
+          <span class="node-status status-pending" id="status-${node.id}">Pending</span>
+        </li>
+      `).join('');
+    }
+
+    function selectNode(nodeId) {
+      const node = cy.getElementById(nodeId);
+      showNodeDetail(node.data());
+
+      document.querySelectorAll('.node-item').forEach(el => el.classList.remove('active'));
+      document.querySelector(`[data-node-id="${nodeId}"]`)?.classList.add('active');
+    }
+
+    function showNodeDetail(data) {
+      const panel = document.getElementById('detail-panel');
+      const detail = document.getElementById('node-detail');
+      panel.style.display = 'block';
+
+      const node = workflowData.nodes.find(n => n.id === data.id);
+      detail.innerHTML = `
+        <div><strong>ID:</strong> ${data.id}</div>
+        <div><strong>Type:</strong> ${data.type}</div>
+        <div><strong>Name:</strong> ${data.label}</div>
+        <div><strong>Status:</strong> <span id="detail-status">${data.status || 'pending'}</span></div>
+        <div style="margin-top:10px;"><strong>Inputs:</strong></div>
+        <pre>${JSON.stringify(node.inputs, null, 2)}</pre>
+      `;
+    }
+
+    async function runWorkflow() {
+      const btn = document.getElementById('run-btn');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+
+      try {
+        const res = await fetch('/api/run', { method: 'POST' });
+        const result = await res.json();
+        log('Workflow started: ' + result.sessionId);
+        pollStatus(result.sessionId);
+      } catch (e) {
+        log('Error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Run Workflow';
+      }
+    }
+
+    async function pollStatus(sessionId) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/status/${sessionId}`);
+          const status = await res.json();
+
+          for (const [nodeId, state] of Object.entries(status.nodes)) {
+            updateNodeStatus(nodeId, state.status);
+          }
+
+          if (status.logs) {
+            document.getElementById('log-content').textContent = status.logs.join('\n');
+          }
+
+          if (status.complete) {
+            clearInterval(interval);
+            document.getElementById('run-btn').disabled = false;
+            document.getElementById('run-btn').textContent = 'Run Workflow';
+            log('Workflow completed');
+          }
+        } catch (e) {
+          console.error('Poll error:', e);
+        }
+      }, 1000);
+    }
+
+    function updateNodeStatus(nodeId, status) {
+      const node = cy.getElementById(nodeId);
+      node.data('status', status);
+
+      const statusEl = document.getElementById(`status-${nodeId}`);
+      if (statusEl) {
+        statusEl.className = `node-status status-${status}`;
+        statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      }
+
+      const detailStatus = document.getElementById('detail-status');
+      if (detailStatus && document.querySelector(`[data-node-id="${nodeId}"]`)?.classList.contains('active')) {
+        detailStatus.textContent = status;
+      }
+    }
+
+    function refreshStatus() {
+      loadWorkflow();
+      log('Status refreshed');
+    }
+
+    function fitGraph() {
+      cy.fit();
+    }
+
+    function log(message) {
+      const logContent = document.getElementById('log-content');
+      logContent.textContent += message + '\n';
+      logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    // Initialize
+    loadWorkflow();
+  </script>
+</body>
+</html>

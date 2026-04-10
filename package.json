@@ -1,0 +1,38 @@
+{
+  "name": "orc",
+  "version": "0.6.0",
+  "description": "JSON-driven task orchestration tool",
+  "main": "dist/src/cli.js",
+  "bin": {
+    "orc": "./dist/src/cli.js"
+  },
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "scripts": {
+    "build": "tsc && cp -r src/web dist/src/web",
+    "test": "node dist/test/nodes.test.js",
+    "test:graph": "node dist/test/graph.test.js",
+    "orc": "node dist/src/cli.js"
+  },
+  "keywords": ["workflow", "orchestration", "json-schema", "dag", "automation"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/json-schema": "^7.0.15",
+    "ajv": "^8.18.0",
+    "commander": "^14.0.3",
+    "execa": "^8.0.1",
+    "graphology": "^0.26.0",
+    "graphology-dag": "^0.4.1",
+    "handlebars": "^4.7.9",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}

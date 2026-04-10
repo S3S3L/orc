@@ -1,0 +1,163 @@
+{
+  "version": "0.6.0",
+  "name": "v0.6.0 条件分支功能测试",
+  "description": "测试条件边的动态路由、跳过和停止功能",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "bash",
+      "name": "开始节点",
+      "inputs": {},
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "mode": { "type": "string" }
+        }
+      },
+      "config": {
+        "script": "./scripts/start-status.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "success-path",
+      "type": "bash",
+      "name": "成功路径",
+      "inputs": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string" },
+            "mode": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "config": {
+        "script": "./scripts/success-path.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "failure-path",
+      "type": "bash",
+      "name": "失败路径",
+      "inputs": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string" },
+            "mode": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "config": {
+        "script": "./scripts/failure-path.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "cleanup",
+      "type": "bash",
+      "name": "清理节点",
+      "inputs": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cleaned": { "type": "boolean" }
+        }
+      },
+      "config": {
+        "script": "./scripts/cleanup.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "final",
+      "type": "bash",
+      "name": "最终汇总",
+      "inputs": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      },
+      "config": {
+        "script": "./scripts/final-summary.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-start-branch",
+      "from": { "nodeId": "start" },
+      "to": { "nodeId": "success-path", "input": "config" },
+      "condition": {
+        "expression": "outputs['start']?.status === 'success'",
+        "onFalse": "skip",
+        "branches": [
+          {
+            "expression": "outputs['start']?.status === 'success'",
+            "to": { "nodeId": "success-path", "input": "config" }
+          },
+          {
+            "expression": "outputs['start']?.status === 'failure'",
+            "to": { "nodeId": "failure-path", "input": "config" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "edge-start-failure",
+      "from": { "nodeId": "start" },
+      "to": { "nodeId": "failure-path", "input": "config" }
+    },
+    {
+      "id": "edge-success-to-cleanup",
+      "from": { "nodeId": "success-path" },
+      "to": { "nodeId": "cleanup", "input": "result" }
+    },
+    {
+      "id": "edge-failure-to-cleanup",
+      "from": { "nodeId": "failure-path" },
+      "to": { "nodeId": "cleanup", "input": "result" }
+    },
+    {
+      "id": "edge-cleanup-to-final",
+      "from": { "nodeId": "cleanup" },
+      "to": { "nodeId": "final", "input": "result" }
+    }
+  ]
+}
