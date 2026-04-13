@@ -43,7 +43,7 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
     },
     edge: {
       type: 'object',
-      required: ['id', 'from', 'to'],
+      required: ['id', 'from'],
       properties: {
         id: { type: 'string' },
         from: {
@@ -86,7 +86,12 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
             onNoMatch: { type: 'string', enum: ['skip', 'skip-node', 'stop', 'error'] }
           }
         }
-      }
+      },
+      // 边必须有 to 或 condition.branches（至少一个）
+      anyOf: [
+        { required: ['to'] },
+        { required: ['condition'] }
+      ]
     }
   }
 };

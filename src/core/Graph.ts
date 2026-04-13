@@ -104,10 +104,12 @@ export class WorkflowGraph {
     const edgesByTarget = new Map<string, Array<{ edge: EdgeDefinition; input: string }>>();
 
     for (const edge of edges) {
-      // 添加边的默认 to 目标
-      const defaultList = edgesByTarget.get(edge.to.nodeId) || [];
-      defaultList.push({ edge, input: edge.to.input });
-      edgesByTarget.set(edge.to.nodeId, defaultList);
+      // 添加边的默认 to 目标（仅当 edge.to 存在时）
+      if (edge.to) {
+        const defaultList = edgesByTarget.get(edge.to.nodeId) || [];
+        defaultList.push({ edge, input: edge.to.input });
+        edgesByTarget.set(edge.to.nodeId, defaultList);
+      }
 
       // 添加 condition.branches 中的目标
       if (edge.condition?.branches) {
