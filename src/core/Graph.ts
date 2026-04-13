@@ -30,18 +30,21 @@ export class WorkflowGraph {
       if (!this.graph.hasNode(edge.from.nodeId)) {
         throw new Error(`Edge ${edge.id}: source node ${edge.from.nodeId} not found`);
       }
-      if (!this.graph.hasNode(edge.to.nodeId)) {
-        throw new Error(`Edge ${edge.id}: target node ${edge.to.nodeId} not found`);
-      }
 
-      // 添加默认的 to 边
-      this.graph.addDirectedEdge(edge.from.nodeId, edge.to.nodeId, {
-        input: edge.to.input,
-        transform: edge.transform,
-        condition: edge.condition,  // 存储条件配置
-        edgeId: edge.id,  // 存储边的 ID
-        isDefaultEdge: true  // 标记为默认边
-      });
+      // 添加默认的 to 边（仅当 edge.to 存在时）
+      if (edge.to) {
+        if (!this.graph.hasNode(edge.to.nodeId)) {
+          throw new Error(`Edge ${edge.id}: target node ${edge.to.nodeId} not found`);
+        }
+
+        this.graph.addDirectedEdge(edge.from.nodeId, edge.to.nodeId, {
+          input: edge.to.input,
+          transform: edge.transform,
+          condition: edge.condition,  // 存储条件配置
+          edgeId: edge.id,  // 存储边的 ID
+          isDefaultEdge: true  // 标记为默认边
+        });
+      }
 
       // 添加 condition.branches 中的边
       if (edge.condition?.branches) {

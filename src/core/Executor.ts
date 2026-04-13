@@ -261,6 +261,16 @@ export class Executor {
         // 所有入边都被跳过，此节点也应被跳过
         throw new NodeSkippedError(node.id);
       }
+
+      // 没有入边，检查节点是否有出边（是否是起始节点）
+      // 如果节点没有任何边连接，它是孤立节点，应该被跳过
+      const incomingEdges = this.graph['graph'].inEdges(node.id);
+      const outgoingEdges = this.graph['graph'].outEdges(node.id);
+
+      if (incomingEdges.length === 0 && outgoingEdges.length === 0) {
+        // 孤立节点，没有任何边连接，跳过
+        throw new NodeSkippedError(node.id);
+      }
     }
 
     return inputs;

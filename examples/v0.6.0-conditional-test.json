@@ -148,7 +148,6 @@
     {
       "id": "edge-start-branch",
       "from": { "nodeId": "start" },
-      "to": { "nodeId": "default-path", "input": "config" },
       "condition": {
         "branches": [
           {

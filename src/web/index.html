@@ -83,15 +83,9 @@
 
     function renderGraph() {
       const elements = [];
+      const connectedNodes = new Set();
 
-      // Add nodes
-      for (const node of workflowData.nodes) {
-        elements.push({
-          data: { id: node.id, label: node.name || node.id, type: node.type, status: 'pending' }
-        });
-      }
-
-      // Add edges
+      // Add edges first and track connected nodes
       for (const edge of workflowData.edges) {
         // 添加 condition.branches 中的边（优先显示分支边）
         if (edge.condition?.branches) {
@@ -114,9 +108,13 @@
                 isBranchEdge: true
               }
             });
+
+            // 记录连接的节点
+            connectedNodes.add(edge.from.nodeId);
+            connectedNodes.add(branch.to.nodeId);
           });
-        } else {
-          // 没有 condition 的边，正常显示
+        } else if (edge.to) {
+          // 没有 condition 的边，正常显示（需要 edge.to 存在）
           elements.push({
             data: {
               id: edge.id,
@@ -124,6 +122,19 @@
               target: edge.to.nodeId,
               label: edge.to.input
             }
+          });
+
+          // 记录连接的节点
+          connectedNodes.add(edge.from.nodeId);
+          connectedNodes.add(edge.to.nodeId);
+        }
+      }
+
+      // Add only connected nodes
+      for (const node of workflowData.nodes) {
+        if (connectedNodes.has(node.id)) {
+          elements.push({
+            data: { id: node.id, label: node.name || node.id, type: node.type, status: 'pending' }
           });
         }
       }
@@ -218,7 +229,24 @@
 
     function renderNodeList() {
       const list = document.getElementById('node-list');
-      list.innerHTML = workflowData.nodes.map(node => `
+
+      // 计算连接的节点（与 renderGraph 保持一致）
+      const connectedNodes = new Set();
+      for (const edge of workflowData.edges) {
+        connectedNodes.add(edge.from.nodeId);
+        if (edge.condition?.branches) {
+          for (const branch of edge.condition.branches) {
+            connectedNodes.add(branch.to.nodeId);
+          }
+        } else if (edge.to) {
+          connectedNodes.add(edge.to.nodeId);
+        }
+      }
+
+      // 只列出连接的节点
+      list.innerHTML = workflowData.nodes
+        .filter(node => connectedNodes.has(node.id))
+        .map(node => `
         <li class="node-item" data-node-id="${node.id}" onclick="selectNode('${node.id}')">
           <div class="node-id">${node.name || node.id}</div>
           <div class="node-type">${node.type}</div>
