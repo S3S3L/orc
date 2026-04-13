@@ -71,6 +71,31 @@
       }
     },
     {
+      "id": "default-path",
+      "type": "bash",
+      "name": "默认路径",
+      "inputs": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string" },
+            "mode": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "config": {
+        "script": "./scripts/default-path.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
       "id": "cleanup",
       "type": "bash",
       "name": "清理节点",
@@ -121,21 +146,21 @@
   ],
   "edges": [
     {
-      "id": "edge-success",
+      "id": "edge-start-branch",
       "from": { "nodeId": "start" },
-      "to": { "nodeId": "success-path", "input": "config" },
+      "to": { "nodeId": "default-path", "input": "config" },
       "condition": {
-        "expression": "outputs['start']?.status === 'success'",
-        "onFalse": "skip"
-      }
-    },
-    {
-      "id": "edge-failure",
-      "from": { "nodeId": "start" },
-      "to": { "nodeId": "failure-path", "input": "config" },
-      "condition": {
-        "expression": "outputs['start']?.status === 'failure'",
-        "onFalse": "skip"
+        "branches": [
+          {
+            "expression": "outputs['start']?.status === 'success'",
+            "to": { "nodeId": "success-path", "input": "config" }
+          },
+          {
+            "expression": "outputs['start']?.status === 'failure'",
+            "to": { "nodeId": "failure-path", "input": "config" }
+          }
+        ],
+        "onNoMatch": "skip"
       }
     },
     {

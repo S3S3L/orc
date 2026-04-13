@@ -267,14 +267,13 @@ export class Executor {
   }
 
   /**
-   * 评估边条件（支持动态路由）
+   * 评估边条件（基于 branches 配置）
    * 返回：{ action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route', target?: { nodeId, input } }
    */
   private evaluateEdgeCondition(
     edge: { id: string; from: string; input: string; condition?: {
-      expression: string;
-      onFalse?: 'skip' | 'skip-node' | 'stop' | 'error';
-      branches?: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+      branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+      onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
     }
   }, nodeId: string): {
     action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route';
@@ -284,32 +283,20 @@ export class Executor {
       return { action: 'continue' };
     }
 
-    const { expression, onFalse, branches } = edge.condition;
+    const { branches, onNoMatch } = edge.condition;
 
     try {
-      // 简单的条件求值 - 支持基于上游节点输出的表达式
-      const conditionFn = new Function('outputs', `return ${expression}`);
-      const result = conditionFn(Object.fromEntries(this.context.nodeOutputs));
-
-      if (!!result) {
-        // 条件为真，检查是否有 branches 路由
-        if (branches && branches.length > 0) {
-          // 评估分支条件
-          for (const branch of branches) {
-            const branchFn = new Function('outputs', `return ${branch.expression}`);
-            const branchResult = branchFn(Object.fromEntries(this.context.nodeOutputs));
-            if (!!branchResult) {
-              return { action: 'route', target: branch.to };
-            }
-          }
-          // 没有匹配的分支，继续到默认目标
-          return { action: 'continue' };
+      // 评估所有分支，返回第一个匹配的结果
+      for (const branch of branches) {
+        const branchFn = new Function('outputs', `return ${branch.expression}`);
+        const result = branchFn(Object.fromEntries(this.context.nodeOutputs));
+        if (!!result) {
+          return { action: 'route', target: branch.to };
         }
-        return { action: 'continue' };
       }
 
-      // 条件为假，根据 onFalse 配置处理
-      switch (onFalse) {
+      // 没有匹配的分支，根据 onNoMatch 配置处理
+      switch (onNoMatch) {
         case 'skip':
           return { action: 'skip' };
         case 'skip-node':
@@ -319,8 +306,8 @@ export class Executor {
         case 'error':
           return { action: 'error' };
         default:
-          // 默认跳过
-          return { action: 'skip' };
+          // 默认继续到边的 to 字段指定的目标
+          return { action: 'continue' };
       }
     } catch (e) {
       throw new Error(`Node ${nodeId}: edge ${edge.id} condition evaluation failed: ${e}`);

@@ -25,7 +25,7 @@ export class WorkflowGraph {
       this.nodes.set(node.id, node);
     }
 
-    // 3. 添加边
+    // 3. 添加边（包括默认 to 和 condition.branches 中的目标）
     for (const edge of workflow.edges) {
       if (!this.graph.hasNode(edge.from.nodeId)) {
         throw new Error(`Edge ${edge.id}: source node ${edge.from.nodeId} not found`);
@@ -34,12 +34,38 @@ export class WorkflowGraph {
         throw new Error(`Edge ${edge.id}: target node ${edge.to.nodeId} not found`);
       }
 
+      // 添加默认的 to 边
       this.graph.addDirectedEdge(edge.from.nodeId, edge.to.nodeId, {
         input: edge.to.input,
         transform: edge.transform,
         condition: edge.condition,  // 存储条件配置
-        edgeId: edge.id  // 存储边的 ID
+        edgeId: edge.id,  // 存储边的 ID
+        isDefaultEdge: true  // 标记为默认边
       });
+
+      // 添加 condition.branches 中的边
+      if (edge.condition?.branches) {
+        for (const branch of edge.condition.branches) {
+          if (!this.graph.hasNode(branch.to.nodeId)) {
+            throw new Error(`Edge ${edge.id}: branch target node ${branch.to.nodeId} not found`);
+          }
+
+          // 检查是否已存在相同的边
+          const existingEdge = this.graph.hasEdge(edge.from.nodeId, branch.to.nodeId);
+          if (existingEdge) {
+            // 已存在，跳过
+            continue;
+          }
+
+          this.graph.addDirectedEdge(edge.from.nodeId, branch.to.nodeId, {
+            input: branch.to.input,
+            transform: edge.transform,
+            condition: edge.condition,  // 存储条件配置
+            edgeId: edge.id,  // 存储边的 ID
+            branchTarget: branch.to  // 标记为分支目标
+          });
+        }
+      }
     }
 
     // 4. 校验 DAG（无环）
@@ -71,12 +97,23 @@ export class WorkflowGraph {
   }
 
   private validateSchemaConnections(edges: EdgeDefinition[]): void {
-    // 按目标节点分组边
-    const edgesByTarget = new Map<string, EdgeDefinition[]>();
+    // 按目标节点分组边（包括边的 to 和 condition.branches 中的 to）
+    const edgesByTarget = new Map<string, Array<{ edge: EdgeDefinition; input: string }>>();
+
     for (const edge of edges) {
-      const list = edgesByTarget.get(edge.to.nodeId) || [];
-      list.push(edge);
-      edgesByTarget.set(edge.to.nodeId, list);
+      // 添加边的默认 to 目标
+      const defaultList = edgesByTarget.get(edge.to.nodeId) || [];
+      defaultList.push({ edge, input: edge.to.input });
+      edgesByTarget.set(edge.to.nodeId, defaultList);
+
+      // 添加 condition.branches 中的目标
+      if (edge.condition?.branches) {
+        for (const branch of edge.condition.branches) {
+          const list = edgesByTarget.get(branch.to.nodeId) || [];
+          list.push({ edge, input: branch.to.input });
+          edgesByTarget.set(branch.to.nodeId, list);
+        }
+      }
     }
 
     // 校验每个节点的输入覆盖
@@ -84,7 +121,7 @@ export class WorkflowGraph {
       const node = this.nodes.get(nodeId);
       if (!node) continue;
 
-      const providedInputs = new Set(incomingEdges.map(e => e.to.input));
+      const providedInputs = new Set(incomingEdges.map(e => e.input));
 
       // 检查节点定义中的所有输入
       for (const inputName of Object.keys(node.inputs)) {
@@ -108,9 +145,8 @@ export class WorkflowGraph {
    * 获取节点的所有输入边
    */
   getIncomingEdges(nodeId: string): Array<{ id: string; from: string; input: string; condition?: {
-    expression: string;
-    onFalse?: 'skip' | 'skip-node' | 'stop' | 'error';
-    branches?: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+    branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+    onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
   } }> {
     const edges = this.graph
       .inEdges(nodeId)
@@ -182,22 +218,8 @@ export class WorkflowGraph {
    * @deprecated 条件评估已移至 Executor.evaluateEdgeCondition()
    */
   shouldExecuteEdge(edge: EdgeDefinition): boolean {
-    if (!edge.condition) {
-      return true;
-    }
-
-    const { expression, onFalse } = edge.condition;
-
-    try {
-      const conditionFn = new Function('outputs', `return ${expression}`);
-      const result = conditionFn(this.getAllNodeOutputs());
-      return !!result;
-    } catch (e) {
-      if (onFalse === 'error') {
-        throw new Error(`Edge ${edge.id}: condition evaluation failed: ${e}`);
-      }
-      return false;
-    }
+    // 已废弃方法，不支持新的 branches 配置
+    return true;
   }
 
   /**

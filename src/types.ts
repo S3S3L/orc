@@ -147,26 +147,26 @@ export interface NodeDefinition {
 export interface EdgeDefinition {
   id: string;
   from: { nodeId: string };
-  to: { nodeId: string; input: string };
+  to: { nodeId: string; input: string };  // 默认目标（当没有 condition 或 branches 无匹配时使用）
   transform?: (data: any) => any;
   condition?: {
-    expression: string;      // 条件表达式，基于上游输出
     /**
-     * 条件不满足时的行为
+     * 分支列表，按顺序评估，第一个匹配的分支生效
+     * 如果为空或 undefined，边无条件执行到 to 指定的目标
+     */
+    branches: Array<{
+      expression: string;     // 分支条件表达式
+      to: { nodeId: string; input: string };  // 条件满足时的路由目标
+    }>;
+    /**
+     * 没有分支匹配时的行为（可选）
      * - 'skip': 跳过这条边
      * - 'skip-node': 跳过目标节点
      * - 'stop': 停止工作流执行
      * - 'error': 抛出错误
+     * - undefined: 使用边的 to 字段作为默认目标
      */
-    onFalse?: 'skip' | 'skip-node' | 'stop' | 'error';
-    /**
-     * 动态路由：条件为真时路由到的目标
-     * 支持多个分支，类似 switch/case
-     */
-    branches?: Array<{
-      expression: string;     // 分支条件
-      to: { nodeId: string; input: string };  // 路由目标
-    }>;
+    onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
   };
 }
 

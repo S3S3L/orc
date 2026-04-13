@@ -64,10 +64,9 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
         condition: {
           type: 'object',
           properties: {
-            expression: { type: 'string' },
-            onFalse: { type: 'string', enum: ['skip', 'skip-node', 'stop', 'error'] },
             branches: {
               type: 'array',
+              minItems: 1,
               items: {
                 type: 'object',
                 required: ['expression', 'to'],
@@ -83,7 +82,8 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
                   }
                 }
               }
-            }
+            },
+            onNoMatch: { type: 'string', enum: ['skip', 'skip-node', 'stop', 'error'] }
           }
         }
       }
