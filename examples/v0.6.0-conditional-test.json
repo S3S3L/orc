@@ -140,11 +140,6 @@
       }
     },
     {
-      "id": "edge-start-failure",
-      "from": { "nodeId": "start" },
-      "to": { "nodeId": "failure-path", "input": "config" }
-    },
-    {
       "id": "edge-success-to-cleanup",
       "from": { "nodeId": "success-path" },
       "to": { "nodeId": "cleanup", "input": "result" }

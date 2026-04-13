@@ -291,6 +291,7 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
         // 持久化输出
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, JSON.stringify(output, null, 2));
 
         // 节点完成后立即更新状态

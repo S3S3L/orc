@@ -144,6 +144,7 @@ export class ClaudeCodeNode implements NodeExecutor {
   ): string[] {
     // 读取 context markdown 内容直接作为 prompt（避免 shell 展开问题）
     const contextContent = readFileSync(contextMdPath, 'utf-8');
+    var allowedTools = config.capabilities.tools?.allowed || [];
 
     const args: string[] = [
       '-p',
@@ -156,9 +157,14 @@ export class ClaudeCodeNode implements NodeExecutor {
       args.push('--json-schema', JSON.stringify(outputSchema));
     }
 
+    // 追加mcp工具到 allowedTools
+    if (config.capabilities.mcp?.enabled) {
+      allowedTools = allowedTools.concat(config.capabilities.mcp.enabled.map(mcp => `mcp__${mcp}__*`));
+    }
+
     // 工具限制
-    if (config.capabilities.tools?.allowed) {
-      args.push('--allowed-tools', config.capabilities.tools.allowed.join(','));
+    if (allowedTools.length > 0) {
+      args.push('--allowed-tools', allowedTools.join(','));
     }
     if (config.capabilities.tools?.denied) {
       args.push('--disallowed-tools', config.capabilities.tools.denied.join(','));

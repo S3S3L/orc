@@ -145,8 +145,8 @@
             "allowed": ["Read", "Bash", "Write", "Edit"]
           },
           "mcp": {
-            "enabled": [],
-            "config": ""
+            "enabled": ["filesystem"],
+            "config": "./mcp-config.json"
           }
         },
         "configTemplates": []
