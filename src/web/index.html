@@ -93,14 +93,39 @@
 
       // Add edges
       for (const edge of workflowData.edges) {
-        elements.push({
-          data: {
-            id: edge.id,
-            source: edge.from.nodeId,
-            target: edge.to.nodeId,
-            label: edge.to.input
-          }
-        });
+        // 添加 condition.branches 中的边（优先显示分支边）
+        if (edge.condition?.branches) {
+          edge.condition.branches.forEach((branch, idx) => {
+            // 简化条件表达式显示
+            let conditionLabel = branch.expression
+              .replace(/outputs\['[^']+'\]\?\./g, '')  // 移除 outputs['x'].
+              .replace(/=== /g, '=')
+              .replace(/!== /g, '!=')
+              .replace(/ && /g, ' & ')
+              .replace(/ \|\| /g, ' | ')
+              .replace(/'/g, '');
+
+            elements.push({
+              data: {
+                id: edge.id + '-branch-' + idx,
+                source: edge.from.nodeId,
+                target: branch.to.nodeId,
+                label: conditionLabel,
+                isBranchEdge: true
+              }
+            });
+          });
+        } else {
+          // 没有 condition 的边，正常显示
+          elements.push({
+            data: {
+              id: edge.id,
+              source: edge.from.nodeId,
+              target: edge.to.nodeId,
+              label: edge.to.input
+            }
+          });
+        }
       }
 
       cy = cytoscape({
@@ -166,6 +191,15 @@
               'label': 'data(label)',
               'font-size': '10px',
               'color': '#aaa'
+            }
+          },
+          {
+            selector: 'edge[isBranchEdge="true"]',
+            style: {
+              'line-color': '#3498db',
+              'target-arrow-color': '#3498db',
+              'width': 2,
+              'line-style': 'solid'
             }
           }
         ],
