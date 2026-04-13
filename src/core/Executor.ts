@@ -15,6 +15,14 @@ export interface NodeExecutor {
   ): Promise<any>;
 }
 
+// 特殊错误类型：节点被跳过
+export class NodeSkippedError extends Error {
+  constructor(nodeId: string) {
+    super(`Node ${nodeId}: skipped due to condition`);
+    this.name = 'NodeSkippedError';
+  }
+}
+
 export class Executor {
   private graph: WorkflowGraph;
   private ajv: Ajv;
@@ -95,6 +103,14 @@ export class Executor {
         await this.executeNodeInternal(nodeId, node, auditEntry, tempDir);
         return; // 成功则返回
       } catch (error) {
+        // 节点被跳过时不重试，记录跳过状态并返回
+        if (error instanceof NodeSkippedError) {
+          this.audit.skipped(auditEntry);
+          // 在 nodeOutputs 中留下跳过标记，以便下游节点知道源节点被跳过
+          this.context.nodeOutputs.set(nodeId, { __skipped: true });
+          return;
+        }
+
         lastError = error instanceof Error ? error : new Error(String(error));
 
         if (attempt < maxAttempts) {
@@ -178,6 +194,7 @@ export class Executor {
   private collectInputs(node: NodeDefinition): Record<string, any> {
     const inputs: Record<string, any> = {};
     const edges = this.graph.getIncomingEdges(node.id);
+    let hasActiveEdge = false;
 
     for (const edge of edges) {
       // 检查边条件
@@ -214,15 +231,36 @@ export class Executor {
           // 使用路由目标指定的输入名
           edge.input = conditionResult.target.input;
         }
+
+        hasActiveEdge = true;
+      } else {
+        hasActiveEdge = true;
       }
 
+      // 检查源节点输出
       const sourceOutput = this.context.nodeOutputs.get(edge.from);
       if (sourceOutput === undefined) {
+        // 源节点没有被执行（这不应该发生，因为是拓扑排序）
         throw new Error(
           `Node ${node.id}: input '${edge.input}' depends on unexecuted node ${edge.from}`
         );
       }
+
+      // 如果源节点被跳过，跳过这条边的输入
+      if (sourceOutput?.__skipped === true) {
+        continue;
+      }
+
       inputs[edge.input] = sourceOutput;
+    }
+
+    // 如果所有入边都被跳过（或没有入边），返回空输入
+    if (!hasActiveEdge || Object.keys(inputs).length === 0) {
+      // 检查是否有入边但都被跳过
+      if (edges.length > 0) {
+        // 所有入边都被跳过，此节点也应被跳过
+        throw new NodeSkippedError(node.id);
+      }
     }
 
     return inputs;
@@ -293,6 +331,16 @@ export class Executor {
    * 校验输入 Schema
    */
   private validateInputs(node: NodeDefinition, inputs: Record<string, any>): void {
+    // 如果输入为空且有入边，说明所有入边都被跳过，跳过此节点
+    if (Object.keys(inputs).length === 0) {
+      const edges = this.graph.getIncomingEdges(node.id);
+      if (edges.length > 0) {
+        // 抛出特殊错误，表示节点被跳过
+        throw new NodeSkippedError(node.id);
+      }
+      return;  // 没有入边的节点（起始节点）允许空输入
+    }
+
     for (const [inputName, schema] of Object.entries(node.inputs)) {
       const validate = this.ajv.compile(schema);
       const value = inputs[inputName];

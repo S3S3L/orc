@@ -196,7 +196,7 @@ export interface AuditEntry {
   id: string;
   timestamp: string;
   nodeId: string;
-  phase: 'start' | 'validate' | 'execute' | 'complete' | 'error' | 'retry';
+  phase: 'start' | 'validate' | 'execute' | 'complete' | 'error' | 'retry' | 'skipped';
   inputs?: Record<string, any>;
   outputs?: any;
   execution?: {

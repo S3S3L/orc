@@ -121,22 +121,21 @@
   ],
   "edges": [
     {
-      "id": "edge-start-branch",
+      "id": "edge-success",
       "from": { "nodeId": "start" },
       "to": { "nodeId": "success-path", "input": "config" },
       "condition": {
         "expression": "outputs['start']?.status === 'success'",
-        "onFalse": "skip",
-        "branches": [
-          {
-            "expression": "outputs['start']?.status === 'success'",
-            "to": { "nodeId": "success-path", "input": "config" }
-          },
-          {
-            "expression": "outputs['start']?.status === 'failure'",
-            "to": { "nodeId": "failure-path", "input": "config" }
-          }
-        ]
+        "onFalse": "skip"
+      }
+    },
+    {
+      "id": "edge-failure",
+      "from": { "nodeId": "start" },
+      "to": { "nodeId": "failure-path", "input": "config" },
+      "condition": {
+        "expression": "outputs['start']?.status === 'failure'",
+        "onFalse": "skip"
       }
     },
     {

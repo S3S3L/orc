@@ -210,13 +210,21 @@ program
   });
 
 async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId: string, workflowDir: string) {
+  // 初始化目录
+  const outputDir = path.resolve(options.output);
+  const auditDir = path.resolve(options.audit);
+  const tempBaseDir = path.resolve(options.workspace);
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.mkdir(auditDir, { recursive: true });
+  await fs.mkdir(tempBaseDir, { recursive: true });
+
   const graph = new WorkflowGraph(workflow);
 
   const context: ExecutionContext = {
     workflowDir,
-    outputDir: path.resolve(options.output),
-    auditDir: path.resolve(options.audit),
-    tempBaseDir: path.resolve(options.workspace),
+    outputDir,
+    auditDir,
+    tempBaseDir,
     sessionId,
     nodeOutputs: new Map(),
     auditLog: []
@@ -248,7 +256,7 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
   console.log(`[${ts()}] [Web ${sessionId}] -------------------`);
 
   try {
-    // 自定义执行逻辑，支持实时状态更新
+    // 使用 Executor 执行工作流，支持条件分支和实时状态更新
     const groups = graph.getParallelGroups();
 
     for (const group of groups) {
@@ -266,42 +274,50 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
         const tempDir = path.join(context.tempBaseDir, `${nodeId}-${uuidv4()}`);
         await fs.mkdir(tempDir, { recursive: true });
 
-        const inputs: Record<string, any> = {};
-        const edges = graph.getIncomingEdges(nodeId);
-        for (const edge of edges) {
-          const sourceOutput = context.nodeOutputs.get(edge.from);
-          if (sourceOutput !== undefined) {
-            inputs[edge.input] = sourceOutput;
-          }
-        }
-
-        const nodeExecutor = executor['executors'].get(node.type);
-        if (!nodeExecutor) {
-          throw new Error(`No executor registered for node type: ${node.type}`);
-        }
-
         const nodeContext: ExecutionContext = {
           ...context,
           tempBaseDir: tempDir
         };
 
-        const output = await nodeExecutor.execute(node, inputs, nodeContext);
-        context.nodeOutputs.set(nodeId, output);
+        // 使用 Executor 的内部方法执行节点（支持条件分支）
+        try {
+          // 调用 executeNode 来执行，它会处理条件评估和跳过逻辑
+          await executor['executeNode'](nodeId);
 
-        // 持久化输出
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, JSON.stringify(output, null, 2));
+          const output = context.nodeOutputs.get(nodeId);
 
-        // 节点完成后立即更新状态
-        state.nodes[nodeId] = { status: 'success', output };
-        if (state.logs) {
-          state.logs.push(`✓ ${nodeId} completed`);
+          // 检查节点是否被跳过
+          if (output?.__skipped === true) {
+            state.nodes[nodeId] = { status: 'skipped', output };
+            if (state.logs) {
+              state.logs.push(`⊘ ${nodeId} skipped`);
+            }
+            console.log(`[${ts()}] [Web ${sessionId}] ⊘ ${nodeId} skipped`);
+          } else {
+            // 节点成功执行
+            state.nodes[nodeId] = { status: 'success', output };
+            if (state.logs) {
+              state.logs.push(`✓ ${nodeId} completed`);
+            }
+            console.log(`[${ts()}] [Web ${sessionId}] ✓ ${nodeId} completed`);
+
+            // 持久化输出
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+            await fs.writeFile(filePath, JSON.stringify(output, null, 2));
+          }
+        } catch (err) {
+          // 节点执行失败
+          state.nodes[nodeId] = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+          if (state.logs) {
+            state.logs.push(`✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          console.log(`[${ts()}] [Web ${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
+          throw err;
         }
-        console.log(`[${ts()}] [Web ${sessionId}] ✓ ${nodeId} completed`);
 
-        return { nodeId, output };
+        return { nodeId, output: context.nodeOutputs.get(nodeId) };
       });
 
       // 等待组内所有节点完成

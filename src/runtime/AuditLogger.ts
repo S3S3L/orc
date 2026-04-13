@@ -58,6 +58,14 @@ export class AuditLogger {
   }
 
   /**
+   * 标记审计条目为跳过
+   */
+  skipped(entry: AuditEntry): void {
+    entry.phase = 'skipped';
+    this.persist(entry);
+  }
+
+  /**
    * 持久化审计条目到文件
    */
   private async persist(entry: AuditEntry): Promise<void> {
