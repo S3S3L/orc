@@ -219,15 +219,6 @@ export class WorkflowGraph {
   }
 
   /**
-   * 检查边是否应该执行（基于条件）- 已废弃，使用 Executor 中的条件评估
-   * @deprecated 条件评估已移至 Executor.evaluateEdgeCondition()
-   */
-  shouldExecuteEdge(edge: EdgeDefinition): boolean {
-    // 已废弃方法，不支持新的 branches 配置
-    return true;
-  }
-
-  /**
    * 获取所有节点的输出（用于条件判断）
    */
   getAllNodeOutputs(): Record<string, any> {
@@ -243,5 +234,27 @@ export class WorkflowGraph {
    */
   setNodeOutput(nodeId: string, output: any): void {
     // Placeholder for future use
+  }
+
+  getRootNodes(): string[] {
+    return this.graph
+      .nodes()
+      .filter((nodeId: string) => this.graph.inDegree(nodeId) === 0);
+  }
+
+  getUpstreamNodes(nodeId: string): string[] {
+    return this.graph
+      .inNeighbors(nodeId);
+  }
+
+  getDownstreamNodes(nodeId: string): string[] {
+    return this.graph
+      .outNeighbors(nodeId);
+  }
+
+  getAllValideNodes(): string[] {
+    return this.graph
+      .nodes()
+      .filter((nodeId: string) => this.graph.inDegree(nodeId) > 0 || this.graph.outDegree(nodeId) > 0);
   }
 }

@@ -2,6 +2,8 @@ import { JSONSchema7 } from 'json-schema';
 
 // ============ 节点类型枚举 ============
 export type NodeType = 'bash' | 'python' | 'node' | 'claude-code';
+export type Phase = 'start' | 'validate' | 'execute' | 'complete' | 'error' | 'retry' | 'skipped';
+export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 // ============ 基础配置接口 ============
 export interface RetryConfig {
@@ -143,6 +145,12 @@ export interface NodeDefinition {
   config: NodeConfigUnion;
 }
 
+export interface NodeInstance {
+  definition: NodeDefinition;
+  status: NodeStatus;
+  depends: Map<string, boolean>;  // 依赖的节点的完成状态，节点ID映射到布尔值
+}
+
 // ============ 边定义 ============
 export interface EdgeDefinition {
   id: string;
@@ -191,12 +199,20 @@ export interface ExecutionContext {
   auditLog: AuditEntry[];
 }
 
+// ============ 执行状态 ============
+export interface ExecutionState {
+  status: 'running' | 'complete' | 'error';
+  logs: string[];
+  startTime: number;
+  complete: boolean;
+}
+
 // ============ 审计日志条目 ============
 export interface AuditEntry {
   id: string;
   timestamp: string;
   nodeId: string;
-  phase: 'start' | 'validate' | 'execute' | 'complete' | 'error' | 'retry' | 'skipped';
+  phase: Phase;
   inputs?: Record<string, any>;
   outputs?: any;
   execution?: {

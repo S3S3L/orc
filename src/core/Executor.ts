@@ -4,7 +4,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowGraph } from './Graph.js';
 import { AuditLogger } from '../runtime/AuditLogger.js';
-import type { ExecutionContext, NodeDefinition, NodeType, EdgeDefinition, RetryConfig } from '../types.js';
+import type { ExecutionContext, NodeDefinition, NodeType, EdgeDefinition, RetryConfig, NodeInstance } from '../types.js';
 
 // 节点执行器接口
 export interface NodeExecutor {
@@ -30,6 +30,7 @@ export class Executor {
   private context: ExecutionContext;
   private executors: Map<string, NodeExecutor> = new Map();
   private workflowStopped: boolean = false;  // 工作流停止标志
+  private nodes: Map<string, NodeInstance> = new Map();  // 存储节点实例信息（包括执行状态等）
 
   constructor(
     graph: WorkflowGraph,
@@ -55,13 +56,22 @@ export class Executor {
     // 初始化目录
     await this.initializeDirectories();
 
-    // 使用并行组执行
-    const groups = this.graph.getParallelGroups();
+    this.graph.getAllValideNodes().forEach(nodeId => {
+      const nodeDef = this.graph.getNode(nodeId);
+      if (nodeDef) {
+        const node: NodeInstance = {
+          definition: nodeDef,
+          status: 'pending',
+          depends: new Map()  // 记录依赖状态，key 是上游节点 ID，value 是是否已完成
+        };
+        this.nodes.set(nodeId, node);
+        this.graph.getUpstreamNodes(nodeId).forEach(upstreamId => {
+          node.depends.set(upstreamId, false);  // 初始化依赖状态为未完成
+        });
+      }
+    });
 
-    for (const group of groups) {
-      // 并行执行同一组的所有节点
-      await Promise.all(group.map(nodeId => this.executeNode(nodeId)));
-    }
+    await Promise.all(this.graph.getRootNodes().map(rootNodeId => this.executeNode(rootNodeId, 'root')));
 
     return this.context.nodeOutputs;
   }
@@ -78,11 +88,19 @@ export class Executor {
   /**
    * 执行单个节点（支持重试）
    */
-  private async executeNode(nodeId: string): Promise<void> {
-    const node = this.graph.getNode(nodeId);
+  private async executeNode(nodeId: string, from: string): Promise<void> {
+    const node = this.nodes.get(nodeId);
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
+
+    node.depends.set(from, true);
+    if ([...node.depends.values()].some(v => v === false)) {
+      // 还有依赖未完成，暂不执行
+      return;
+    }
+
+    node.status = 'running';
 
     // 为本次执行创建唯一临时目录
     const tempDir = path.join(this.context.tempBaseDir, `${nodeId}-${uuidv4()}`);
@@ -91,7 +109,7 @@ export class Executor {
     const auditEntry = this.audit.start(nodeId, { tempDir });
 
     // 获取重试配置
-    const retryConfig = (node.config as any).retry ?? {};
+    const retryConfig = (node.definition.config as any).retry ?? {};
     const maxAttempts = retryConfig.maxAttempts ?? 3;
     const backoff = retryConfig.backoff ?? 'exponential';
     const baseDelay = retryConfig.delayMs ?? 1000;
@@ -100,14 +118,17 @@ export class Executor {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await this.executeNodeInternal(nodeId, node, auditEntry, tempDir);
-        return; // 成功则返回
+        await this.executeNodeInternal(nodeId, node.definition, auditEntry, tempDir);
+        node.status = 'completed';
+        await Promise.all(this.graph.getDownstreamNodes(nodeId).map(downstreamId => this.executeNode(downstreamId, nodeId))); // 触发下游节点执行
+        return // 成功则返回
       } catch (error) {
         // 节点被跳过时不重试，记录跳过状态并返回
         if (error instanceof NodeSkippedError) {
           this.audit.skipped(auditEntry);
           // 在 nodeOutputs 中留下跳过标记，以便下游节点知道源节点被跳过
           this.context.nodeOutputs.set(nodeId, { __skipped: true });
+          node.status = 'skipped';
           return;
         }
 
@@ -132,6 +153,7 @@ export class Executor {
     // 所有重试失败
     auditEntry.error = lastError?.message ?? 'Unknown error';
     this.audit.error(auditEntry);
+    node.status = 'failed';
     throw lastError;
   }
 
@@ -281,14 +303,15 @@ export class Executor {
    * 返回：{ action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route', target?: { nodeId, input } }
    */
   private evaluateEdgeCondition(
-    edge: { id: string; from: string; input: string; condition?: {
-      branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
-      onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
-    }
-  }, nodeId: string): {
-    action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route';
-    target?: { nodeId: string; input: string }
-  } {
+    edge: {
+      id: string; from: string; input: string; condition?: {
+        branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+        onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
+      }
+    }, nodeId: string): {
+      action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route';
+      target?: { nodeId: string; input: string }
+    } {
     if (!edge.condition) {
       return { action: 'continue' };
     }
@@ -348,8 +371,7 @@ export class Executor {
 
       if (!validate(value)) {
         throw new Error(
-          `Node ${node.id}: input '${inputName}' validation failed: ${
-            this.ajv.errorsText(validate.errors)
+          `Node ${node.id}: input '${inputName}' validation failed: ${this.ajv.errorsText(validate.errors)
           }`
         );
       }
@@ -417,8 +439,7 @@ export class Executor {
     const validate = this.ajv.compile(node.output);
     if (!validate(output)) {
       throw new Error(
-        `Node ${node.id}: output validation failed: ${
-          this.ajv.errorsText(validate.errors)
+        `Node ${node.id}: output validation failed: ${this.ajv.errorsText(validate.errors)
         }`
       );
     }

@@ -9,14 +9,13 @@ import { BashNode } from './nodes/BashNode.js';
 import { PythonNode } from './nodes/PythonNode.js';
 import { NodeNode } from './nodes/NodeNode.js';
 import { ClaudeCodeNode } from './nodes/ClaudeCodeNode.js';
-import type { WorkflowDefinition, ExecutionContext } from './types.js';
+import type { WorkflowDefinition, ExecutionContext, ExecutionState } from './types.js';
 
 const program = new Command();
 
 // 全局状态用于 Web UI
 let lastWorkflow: WorkflowDefinition | null = null;
-let lastContext: ExecutionContext | null = null;
-let executionStates = new Map<string, any>();
+let executionStates = new Map<string, ExecutionState>();
 
 program
   .name('orc')
@@ -42,7 +41,6 @@ program
       // 设置执行状态（与 serve 共用状态结构）
       executionStates.set(sessionId, {
         status: 'running',
-        nodes: {},
         logs: [],
         startTime: Date.now(),
         complete: false
@@ -139,7 +137,6 @@ program
         // 先设置状态
         executionStates.set(sessionId, {
           status: 'running',
-          nodes: {},
           logs: [`Workflow started: ${sessionId}`],
           startTime: Date.now(),
           complete: false  // 初始化为 false
@@ -158,7 +155,7 @@ program
         }).catch((err) => {
           const state = executionStates.get(sessionId);
           if (state) {
-            state.status = 'failed';
+            state.status = 'error';
             state.error = err.message;
             state.complete = true;  // 失败也标记为完成
           }
@@ -245,70 +242,68 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
     // 使用 Executor 执行工作流，支持条件分支和实时状态更新
     const groups = graph.getParallelGroups();
 
-    for (const group of groups) {
-      // 为组内每个节点设置 running 状态
-      for (const nodeId of group) {
-        state.nodes[nodeId] = { status: 'running' };
-        console.log(`[${ts()}] [${sessionId}] → ${nodeId} started`);
+    // 为组内每个节点设置 running 状态
+    for (const nodeId of group) {
+      state.nodes[nodeId] = { status: 'running' };
+      console.log(`[${ts()}] [${sessionId}] → ${nodeId} started`);
+    }
+
+    // 并行执行组内所有节点，每个节点完成后立即更新状态
+    const nodePromises = group.map(async (nodeId) => {
+      const node = graph.getNode(nodeId);
+      if (!node) throw new Error(`Node ${nodeId} not found`);
+
+      const tempDir = path.join(context.tempBaseDir, `${nodeId}-${uuidv4()}`);
+      await fs.mkdir(tempDir, { recursive: true });
+
+      const nodeContext: ExecutionContext = {
+        ...context,
+        tempBaseDir: tempDir
+      };
+
+      // 使用 Executor 的内部方法执行节点（支持条件分支）
+      try {
+        // 调用 executeNode 来执行，它会处理条件评估和跳过逻辑
+        await executor['executeNode'](nodeId, 'root');
+
+        const output = context.nodeOutputs.get(nodeId);
+
+        // 检查节点是否被跳过
+        if (output?.__skipped === true) {
+          state.nodes[nodeId] = { status: 'skipped', output };
+          if (state.logs) {
+            state.logs.push(`⊘ ${nodeId} skipped`);
+          }
+          console.log(`[${ts()}] [${sessionId}] ⊘ ${nodeId} skipped`);
+        } else {
+          // 节点成功执行
+          state.nodes[nodeId] = { status: 'success', output };
+          if (state.logs) {
+            state.logs.push(`✓ ${nodeId} completed`);
+          }
+          console.log(`[${ts()}] [${sessionId}] ✓ ${nodeId} completed`);
+
+          // 持久化输出
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          await fs.writeFile(filePath, JSON.stringify(output, null, 2));
+        }
+      } catch (err) {
+        // 节点执行失败
+        state.nodes[nodeId] = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+        if (state.logs) {
+          state.logs.push(`✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        console.log(`[${ts()}] [${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
       }
 
-      // 并行执行组内所有节点，每个节点完成后立即更新状态
-      const nodePromises = group.map(async (nodeId) => {
-        const node = graph.getNode(nodeId);
-        if (!node) throw new Error(`Node ${nodeId} not found`);
+      return { nodeId, output: context.nodeOutputs.get(nodeId) };
+    });
 
-        const tempDir = path.join(context.tempBaseDir, `${nodeId}-${uuidv4()}`);
-        await fs.mkdir(tempDir, { recursive: true });
-
-        const nodeContext: ExecutionContext = {
-          ...context,
-          tempBaseDir: tempDir
-        };
-
-        // 使用 Executor 的内部方法执行节点（支持条件分支）
-        try {
-          // 调用 executeNode 来执行，它会处理条件评估和跳过逻辑
-          await executor['executeNode'](nodeId);
-
-          const output = context.nodeOutputs.get(nodeId);
-
-          // 检查节点是否被跳过
-          if (output?.__skipped === true) {
-            state.nodes[nodeId] = { status: 'skipped', output };
-            if (state.logs) {
-              state.logs.push(`⊘ ${nodeId} skipped`);
-            }
-            console.log(`[${ts()}] [${sessionId}] ⊘ ${nodeId} skipped`);
-          } else {
-            // 节点成功执行
-            state.nodes[nodeId] = { status: 'success', output };
-            if (state.logs) {
-              state.logs.push(`✓ ${nodeId} completed`);
-            }
-            console.log(`[${ts()}] [${sessionId}] ✓ ${nodeId} completed`);
-
-            // 持久化输出
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
-            await fs.mkdir(path.dirname(filePath), { recursive: true });
-            await fs.writeFile(filePath, JSON.stringify(output, null, 2));
-          }
-        } catch (err) {
-          // 节点执行失败
-          state.nodes[nodeId] = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
-          if (state.logs) {
-            state.logs.push(`✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-          console.log(`[${ts()}] [${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
-          throw err;
-        }
-
-        return { nodeId, output: context.nodeOutputs.get(nodeId) };
-      });
-
-      // 等待组内所有节点完成
-      await Promise.all(nodePromises);
-    }
+    // 等待组内所有节点完成
+    await Promise.all(nodePromises);
 
     state.status = 'complete';
     console.log(`[${ts()}] [${sessionId}] -------------------`);
