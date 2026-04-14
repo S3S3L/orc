@@ -24,7 +24,7 @@ export class ClaudeCodeNode implements NodeExecutor {
     }
 
     // 3. 渲染并写入上下文 markdown
-    const contextMdPath = path.join(workDir, 'context.md');
+    const contextMdPath = path.join(workDir, `${node.id}.md`);
     await this.renderContextMarkdown(config, inputs, contextMdPath, context);
 
     // 4. 构建 claude 命令（使用节点的 output schema 作为 JSON Schema 约束）

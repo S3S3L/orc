@@ -36,42 +36,28 @@ program
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
       const workflow: WorkflowDefinition = JSON.parse(workflowContent);
 
-      // 构建图
-      const graph = new WorkflowGraph(workflow);
+      const workflowDir = path.dirname(path.resolve(workflowPath));
+      const sessionId = uuidv4();
 
-      // 准备上下文
-      const context: ExecutionContext = {
-        workflowDir: path.dirname(path.resolve(workflowPath)),
-        outputDir: path.resolve(options.output),
-        auditDir: path.resolve(options.audit),
-        tempBaseDir: path.resolve(options.workspace),
-        sessionId: `session-${uuidv4()}`,
-        nodeOutputs: new Map(),
-        auditLog: []
-      };
+      // 设置执行状态（与 serve 共用状态结构）
+      executionStates.set(sessionId, {
+        status: 'running',
+        nodes: {},
+        logs: [],
+        startTime: Date.now(),
+        complete: false
+      });
 
-      // 执行
-      const executor = new Executor(graph, context);
+      // 执行工作流
+      await runWorkflow(workflow, options, sessionId, workflowDir);
 
-      // 注册所有执行器
-      executor.registerExecutor('bash', new BashNode());
-      executor.registerExecutor('python', new PythonNode());
-      executor.registerExecutor('node', new NodeNode());
-      executor.registerExecutor('claude-code', new ClaudeCodeNode());
-
-      const outputs = await executor.execute();
-
-      // 输出结果
-      console.log('Workflow completed. Outputs:');
-      for (const [nodeId, output] of outputs.entries()) {
-        console.log(`  ${nodeId}:`, JSON.stringify(output, null, 2));
+      const state = executionStates.get(sessionId);
+      if (state?.status === 'complete') {
+        console.log('\n✓ Workflow completed successfully');
       }
 
-      console.log(`\nOutputs saved to: ${context.outputDir}`);
-      console.log(`Audit logs saved to: ${context.auditDir}`);
-
     } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
+      console.error('✗ Error:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });
@@ -148,7 +134,7 @@ program
           return;
         }
 
-        const sessionId = `session-${uuidv4()}`;
+        const sessionId = uuidv4();
 
         // 先设置状态
         executionStates.set(sessionId, {
@@ -239,7 +225,7 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
   // 获取状态引用并检查是否存在
   let state = executionStates.get(sessionId);
   if (!state) {
-    console.error(`[${new Date().toISOString()}] [Web ${sessionId}] State not found`);
+    console.error(`[${new Date().toISOString()}] [${sessionId}] State not found`);
     return;
   }
 
@@ -250,10 +236,10 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
     state.nodes[node.id] = { status: 'pending' };
   }
 
-  console.log(`\n[${ts()}] [Web ${sessionId}] Workflow execution started`);
-  console.log(`[${ts()}] [Web ${sessionId}] Workflow: ${workflow.name}`);
-  console.log(`[${ts()}] [Web ${sessionId}] Nodes: ${workflow.nodes.length}`);
-  console.log(`[${ts()}] [Web ${sessionId}] -------------------`);
+  console.log(`\n[${ts()}] [${sessionId}] Workflow execution started`);
+  console.log(`[${ts()}] [${sessionId}] Workflow: ${workflow.name}`);
+  console.log(`[${ts()}] [${sessionId}] Nodes: ${workflow.nodes.length}`);
+  console.log(`[${ts()}] [${sessionId}] -------------------`);
 
   try {
     // 使用 Executor 执行工作流，支持条件分支和实时状态更新
@@ -263,7 +249,7 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
       // 为组内每个节点设置 running 状态
       for (const nodeId of group) {
         state.nodes[nodeId] = { status: 'running' };
-        console.log(`[${ts()}] [Web ${sessionId}] → ${nodeId} started`);
+        console.log(`[${ts()}] [${sessionId}] → ${nodeId} started`);
       }
 
       // 并行执行组内所有节点，每个节点完成后立即更新状态
@@ -292,14 +278,14 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
             if (state.logs) {
               state.logs.push(`⊘ ${nodeId} skipped`);
             }
-            console.log(`[${ts()}] [Web ${sessionId}] ⊘ ${nodeId} skipped`);
+            console.log(`[${ts()}] [${sessionId}] ⊘ ${nodeId} skipped`);
           } else {
             // 节点成功执行
             state.nodes[nodeId] = { status: 'success', output };
             if (state.logs) {
               state.logs.push(`✓ ${nodeId} completed`);
             }
-            console.log(`[${ts()}] [Web ${sessionId}] ✓ ${nodeId} completed`);
+            console.log(`[${ts()}] [${sessionId}] ✓ ${nodeId} completed`);
 
             // 持久化输出
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -313,7 +299,7 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
           if (state.logs) {
             state.logs.push(`✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
           }
-          console.log(`[${ts()}] [Web ${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(`[${ts()}] [${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
           throw err;
         }
 
@@ -325,8 +311,8 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
     }
 
     state.status = 'complete';
-    console.log(`[${ts()}] [Web ${sessionId}] -------------------`);
-    console.log(`[${ts()}] [Web ${sessionId}] Workflow completed successfully`);
+    console.log(`[${ts()}] [${sessionId}] -------------------`);
+    console.log(`[${ts()}] [${sessionId}] Workflow completed successfully`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     if (state.logs) {
@@ -334,8 +320,8 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
     }
     state.status = 'failed';
     state.error = errorMsg;
-    console.log(`[${ts()}] [Web ${sessionId}] ✗ Error: ${errorMsg}`);
-    console.log(`[${ts()}] [Web ${sessionId}] Workflow failed`);
+    console.log(`[${ts()}] [${sessionId}] ✗ Error: ${errorMsg}`);
+    console.log(`[${ts()}] [${sessionId}] Workflow failed`);
     throw error;
   }
 }
