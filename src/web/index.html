@@ -109,13 +109,47 @@
       word-break: break-all;
     }
 
+    #session-panel .session-list-item .session-id-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
     #session-panel .session-list-item .session-id {
       font-family: monospace;
       font-size: 10px;
       color: #dce8f5;
-      margin-top: 2px;
       word-break: break-all;
       opacity: 0.8;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-id-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #b8b8b8;
+      padding: 4px 10px;
+      min-width: 28px;
+      height: 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      flex-shrink: 0;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .copy-id-btn:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.5);
+      color: #fff;
     }
 
     #session-panel .session-list-item .session-actions {
@@ -649,7 +683,10 @@
               <span class="node-status ${statusClass}" style="flex-shrink: 0;">${statusLabel}</span>
             </div>
             <div class="session-time">${time} · ${s.nodeCount} nodes</div>
-            <div class="session-id">${s.id}</div>
+            <div class="session-id-row">
+              <span class="session-id">${s.id}</span>
+              <button class="copy-id-btn" onclick="event.stopPropagation(); copySessionId('${s.id}', this)" title="Copy Session ID">📋</button>
+            </div>
             ${s.status !== 'running' ? `
               <div class="session-actions">
                 <button class="btn btn-sm btn-rerun" onclick="event.stopPropagation(); rerunSession('${s.id}')">Rerun</button>
@@ -1207,6 +1244,25 @@
       const detailStatus = document.getElementById('detail-status');
       if (detailStatus && document.querySelector(`[data-node-id="${nodeId}"]`)?.classList.contains('active')) {
         detailStatus.textContent = status;
+      }
+    }
+
+    function copySessionId(sessionId, btn) {
+      const done = () => {
+        btn.textContent = '✓';
+        setTimeout(() => { btn.textContent = '📋'; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(sessionId).then(done);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = sessionId;
+        ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(ta);
+        done();
       }
     }
 
