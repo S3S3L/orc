@@ -24,11 +24,142 @@
 
     #graph-panel {
       flex: 1;
+      min-width: 0;
       background: #1a1a2e;
+      overflow: hidden;
+    }
+
+    /* Session sidebar panel */
+    #session-panel {
+      width: 380px;
+      background: #1a2740;
+      color: #fff;
+      overflow-y: auto;
+      padding: 20px;
+      display: none;
+      flex-shrink: 0;
+    }
+
+    #session-panel.visible {
+      display: block;
+    }
+
+    #session-panel .panel-header {
+      font-size: 16px;
+      font-weight: bold;
+      color: #f0f0f0;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #505050;
+    }
+
+    #session-panel .session-list-item {
+      padding: 14px 16px;
+      margin: 8px 0;
+      background: #1c3d6e;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+
+    #session-panel .session-list-item:hover {
+      background: #234b7e;
+      border-color: #3a6a9e;
+    }
+
+    #session-panel .session-list-item.active {
+      background: #e86078;
+      border-color: #ff8090;
+      color: #fff;
+    }
+
+    #session-panel .session-list-item.active .session-title {
+      color: #fff;
+    }
+
+    #session-panel .session-list-item.active .session-time {
+      color: #ffe8ec;
+    }
+
+    #session-panel .session-list-item.active .session-id {
+      color: #ffdee5;
+    }
+
+    #session-panel .session-list-item .session-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #session-panel .session-list-item .session-title {
+      font-weight: bold;
+      font-size: 13px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #session-panel .session-list-item .session-time {
+      font-size: 11px;
+      color: #c4d4e8;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+
+    #session-panel .session-list-item .session-id {
+      font-family: monospace;
+      font-size: 10px;
+      color: #dce8f5;
+      margin-top: 2px;
+      word-break: break-all;
+      opacity: 0.8;
+    }
+
+    #session-panel .session-list-item .session-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    #claude-report-container {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      background: #fff;
+    }
+
+    #claude-report-container.active {
+      display: flex;
+    }
+
+    #claude-report-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #505050;
+      min-height: 44px;
+    }
+
+    #claude-report-toolbar span {
+      color: #b8b8b8;
+      font-size: 13px;
+    }
+
+    #claude-report-frame {
+      flex: 1;
+      border: none;
+      background: #fff;
     }
 
     #sidebar {
-      width: 400px;
+      width: 500px;
+      min-width: 500px;
+      flex-shrink: 0;
       background: #16213e;
       color: #fff;
       overflow-y: auto;
@@ -40,7 +171,7 @@
       font-weight: bold;
       margin-bottom: 20px;
       padding-bottom: 10px;
-      border-bottom: 1px solid #333;
+      border-bottom: 1px solid #505050;
     }
 
     .node-list {
@@ -70,7 +201,7 @@
 
     .node-item .node-type {
       font-size: 12px;
-      color: #aaa;
+      color: #b8b8b8;
     }
 
     .node-item .node-status {
@@ -82,23 +213,23 @@
     }
 
     .status-pending {
-      background: #666;
+      background: #909090;
     }
 
     .status-running {
-      background: #3498db;
+      background: #5dade2;
     }
 
     .status-success {
-      background: #27ae60;
+      background: #4cd260;
     }
 
     .status-failed {
-      background: #e74c3c;
+      background: #ff6b5a;
     }
 
     .status-skipped {
-      background: #9b59b6;
+      background: #c08fd6;
     }
 
     #toolbar {
@@ -126,7 +257,7 @@
     }
 
     .btn:disabled {
-      background: #666;
+      background: #8a8a8a;
       cursor: not-allowed;
     }
 
@@ -173,7 +304,7 @@
 
     .detail-label {
       font-size: 12px;
-      color: #aaa;
+      color: #b8b8b8;
       margin-bottom: 8px;
     }
 
@@ -182,51 +313,6 @@
       padding: 10px;
       border-radius: 6px;
       font-size: 13px;
-    }
-
-    /* Session list styles */
-    .session-list {
-      list-style: none;
-    }
-
-    .session-item {
-      padding: 10px 12px;
-      margin: 6px 0;
-      background: #0f3460;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .session-item:hover {
-      background: #1a5276;
-    }
-
-    .session-item.active {
-      background: #e94560;
-    }
-
-    .session-info {
-      flex: 1;
-    }
-
-    .session-name {
-      font-weight: bold;
-      font-size: 13px;
-    }
-
-    .session-meta {
-      font-size: 11px;
-      color: #aaa;
-      margin-top: 2px;
-    }
-
-    .session-actions {
-      display: flex;
-      gap: 4px;
     }
 
     /* Node detail panel expanded styles */
@@ -243,7 +329,7 @@
 
     .node-detail-expanded .section-title {
       font-size: 12px;
-      color: #aaa;
+      color: #b8b8b8;
       margin-bottom: 6px;
       font-weight: bold;
     }
@@ -269,44 +355,6 @@
       margin-top: 12px;
       display: flex;
       gap: 8px;
-    }
-
-    /* Session selector dropdown */
-    .session-selector {
-      position: relative;
-    }
-
-    .session-dropdown {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      background: #16213e;
-      border: 1px solid #333;
-      border-radius: 6px;
-      min-width: 300px;
-      max-height: 400px;
-      overflow-y: auto;
-      z-index: 1001;
-      display: none;
-    }
-
-    .session-dropdown.show {
-      display: block;
-    }
-
-    .session-dropdown-item {
-      padding: 10px 15px;
-      border-bottom: 1px solid #333;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .session-dropdown-item:hover {
-      background: #0f3460;
-    }
-
-    .session-dropdown-item:last-child {
-      border-bottom: none;
     }
 
     /* Claude Code message styles */
@@ -336,12 +384,12 @@
 
     .claude-msg.system {
       background: #2c3e50;
-      border-left: 3px solid #e74c3c;
+      border-left: 3px solid #ff6b5a;
     }
 
     .claude-msg .msg-role {
       font-size: 10px;
-      color: #aaa;
+      color: #b8b8b8;
       margin-bottom: 4px;
       font-weight: bold;
     }
@@ -382,7 +430,7 @@
     .collapse-btn {
       background: transparent;
       border: 1px solid #555;
-      color: #aaa;
+      color: #b8b8b8;
       padding: 2px 8px;
       border-radius: 4px;
       cursor: pointer;
@@ -441,24 +489,70 @@
       color: #fff;
       margin-left: 4px;
     }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10, 10, 20, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    #loading-overlay.visible {
+      display: flex;
+    }
+
+    .loading-spinner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(22, 33, 62, 0.95);
+      padding: 16px 28px;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .loading-spinner .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 
 <body>
+  <div id="loading-overlay"><div class="loading-spinner"><div class="spinner"></div>Loading session...</div></div>
   <div id="toolbar">
     <button class="btn" id="run-btn" onclick="runWorkflow()">Run Workflow</button>
     <button class="btn btn-secondary" id="run-node-btn" onclick="runNode()">Run Node</button>
     <button class="btn btn-secondary" id="refresh-btn" onclick="refreshStatus()">Refresh</button>
     <button class="btn btn-secondary" id="fit-btn" onclick="fitGraph()">Fit</button>
     <button class="subgraph-collapse-btn" id="collapse-subgraph-btn" style="display: none;" onclick="collapseSubgraph()">Collapse Subgraph</button>
-    <div class="session-selector">
-      <button class="btn btn-secondary" id="session-list-btn" onclick="toggleSessionDropdown()">Sessions</button>
-      <div class="session-dropdown" id="session-dropdown"></div>
-    </div>
+    <button class="btn btn-secondary" id="session-list-btn" onclick="toggleSessionPanel()">Sessions</button>
   </div>
 
   <div class="container">
+    <div id="session-panel"></div>
     <div id="graph-panel"></div>
+    <div id="claude-report-container">
+      <div id="claude-report-toolbar">
+        <span id="claude-report-title">Claude Code Report</span>
+        <button class="btn btn-sm" onclick="window.open(currentClaudeHtmlUrl, '_blank')">View Full</button>
+      </div>
+      <iframe id="claude-report-frame"></iframe>
+    </div>
     <div id="sidebar">
       <div class="panel-header">Workflow: <span id="workflow-name">-</span></div>
 
@@ -493,6 +587,7 @@
     let selectedNodeId = null;  // Track currently selected node for detail panel
     let expandedLoopNodeId = null;  // Track which loop node is expanded
     let baseWorkflowData = null;  // Store original workflow before expansion
+    let currentClaudeHtmlUrl = null;  // Current claude HTML report URL
 
     // ============ Initialization ============
 
@@ -514,61 +609,70 @@
       try {
         const res = await fetch('/api/sessions');
         sessions = await res.json();
-        renderSessionDropdown();
+        renderSessionList();
       } catch (e) {
         console.error('Failed to load sessions:', e);
       }
     }
 
-    function toggleSessionDropdown() {
-      const dropdown = document.getElementById('session-dropdown');
-      dropdown.classList.toggle('show');
-      if (dropdown.classList.contains('show')) {
+    function toggleSessionPanel() {
+      const panel = document.getElementById('session-panel');
+      if (panel.classList.contains('visible')) {
+        panel.classList.remove('visible');
+      } else {
+        panel.classList.add('visible');
         loadSessions();
       }
+      requestAnimationFrame(() => {
+        if (cy) { cy.resize(); cy.fit(); }
+      });
     }
 
-    function renderSessionDropdown() {
-      const dropdown = document.getElementById('session-dropdown');
+    function renderSessionList() {
+      const panel = document.getElementById('session-panel');
       if (!sessions || sessions.length === 0) {
-        dropdown.innerHTML = '<div class="session-dropdown-item" style="color: #aaa; text-align: center;">No sessions yet</div>';
+        panel.innerHTML = '<div style="color: #b8b8b8; text-align: center; padding: 40px 0;">No sessions yet</div>';
+        panel.classList.add('visible');
         return;
       }
 
-      dropdown.innerHTML = sessions.map(s => {
+      let html = '<div class="panel-header">Sessions</div>';
+      html += sessions.map(s => {
         const time = new Date(s.startTime).toLocaleString();
         const statusClass = `status-${s.status}`;
         const statusLabel = s.status.charAt(0).toUpperCase() + s.status.slice(1);
         const isActive = s.id === currentSessionId;
         return `
-          <div class="session-dropdown-item" onclick="selectSession('${s.id}')" style="${isActive ? 'background: #e94560;' : ''}">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span class="session-name">${s.workflowName || 'Unnamed'}</span>
-              <span class="node-status ${statusClass}">${statusLabel}</span>
+          <div class="session-list-item ${isActive ? 'active' : ''}" onclick="selectSession('${s.id}')">
+            <div class="session-row">
+              <span class="session-title">${s.workflowName || 'Unnamed'}</span>
+              <span class="node-status ${statusClass}" style="flex-shrink: 0;">${statusLabel}</span>
             </div>
-            <div class="session-meta">${time} · ${s.nodeCount} nodes · ${s.id.slice(0, 8)}...</div>
+            <div class="session-time">${time} · ${s.nodeCount} nodes</div>
+            <div class="session-id">${s.id}</div>
             ${s.status !== 'running' ? `
-              <div style="margin-top: 6px;">
-                <button class="btn btn-rerun btn-sm" onclick="event.stopPropagation(); rerunSession('${s.id}')">Rerun</button>
+              <div class="session-actions">
+                <button class="btn btn-sm btn-rerun" onclick="event.stopPropagation(); rerunSession('${s.id}')">Rerun</button>
               </div>
             ` : ''}
           </div>
         `;
       }).join('');
+      panel.innerHTML = html;
     }
 
     async function selectSession(sessionId) {
       currentSessionId = sessionId;
-      document.getElementById('session-dropdown').classList.remove('show');
+      // Re-render list to update active highlight
+      renderSessionList();
       document.getElementById('active-session-info').innerHTML = `
         <div>Session: ${sessionId.slice(0, 8)}...</div>
-        <div style="color: #aaa; font-size: 12px;">Loading...</div>
+        <div style="color: #b8b8b8; font-size: 12px;">Loading...</div>
       `;
       pollSessionStatus(sessionId);
     }
 
     async function rerunSession(sessionId) {
-      document.getElementById('session-dropdown').classList.remove('show');
       const btn = document.getElementById('run-btn');
       btn.disabled = true;
       btn.textContent = 'Rerunning...';
@@ -703,13 +807,13 @@
             selector: 'edge',
             style: {
               'width': 2,
-              'line-color': '#666',
-              'target-arrow-color': '#666',
+              'line-color': '#8a8a8a',
+              'target-arrow-color': '#8a8a8a',
               'target-arrow-shape': 'triangle',
               'curve-style': 'bezier',
               'label': 'data(label)',
               'font-size': '10px',
-              'color': '#aaa'
+              'color': '#b8b8b8'
             }
           },
           {
@@ -874,7 +978,7 @@
         if (auditSection && auditContent && data.audit) {
           auditSection.style.display = 'block';
           let auditHtml = `
-            <div style="font-size: 12px; color: #ccc;">
+            <div style="font-size: 12px; color: #d0d0d0;">
               <div><strong>Phase:</strong> ${data.audit.phase} &nbsp; <strong>Time:</strong> ${new Date(data.audit.timestamp).toLocaleString()}</div>
           `;
           if (data.audit.execution) {
@@ -882,17 +986,17 @@
             auditHtml += `
               <div style="margin-top: 6px;"><strong>Duration:</strong> ${exec.duration}ms &nbsp; <strong>Exit Code:</strong> ${exec.exitCode}</div>
               ${exec.stdout ? `<div style="margin-top: 6px;"><strong>Stdout:</strong> <pre style="max-height:100px;overflow:auto;">${escapeHtml(exec.stdout.slice(0, 500))}</pre></div>` : ''}
-              ${exec.stderr ? `<div style="margin-top: 4px;"><strong>Stderr:</strong> <pre style="max-height:100px;overflow:auto;color:#e74c3c;">${escapeHtml(exec.stderr.slice(0, 500))}</pre></div>` : ''}
+              ${exec.stderr ? `<div style="margin-top: 4px;"><strong>Stderr:</strong> <pre style="max-height:100px;overflow:auto;color:#ff6b5a;">${escapeHtml(exec.stderr.slice(0, 500))}</pre></div>` : ''}
             `;
           }
           if (data.audit.error) {
-            auditHtml += `<div style="margin-top: 6px; color: #e74c3c;"><strong>Error:</strong> ${escapeHtml(data.audit.error)}</div>`;
+            auditHtml += `<div style="margin-top: 6px; color: #ff6b5a;"><strong>Error:</strong> ${escapeHtml(data.audit.error)}</div>`;
           }
           if (data.audit.retry) {
             auditHtml += `<div style="margin-top: 4px; color: #f39c12;"><strong>Retry:</strong> attempt ${data.audit.retry.attempt}/${data.audit.retry.maxAttempts}, delay ${data.audit.retry.delay}ms</div>`;
           }
           if (data.audit.persistedFiles) {
-            auditHtml += `<div style="margin-top: 4px; color: #aaa;"><strong>Output:</strong> ${escapeHtml(data.audit.persistedFiles.output)}</div>`;
+            auditHtml += `<div style="margin-top: 4px; color: #b8b8b8;"><strong>Output:</strong> ${escapeHtml(data.audit.persistedFiles.output)}</div>`;
           }
           auditHtml += '</div>';
           auditContent.innerHTML = auditHtml;
@@ -922,6 +1026,13 @@
           claudeContent.innerHTML = msgHtml;
         } else if (claudeSection && isClaudeCode) {
           claudeSection.style.display = 'none';
+        }
+
+        // Show Claude Code HTML export in main panel for claude-code nodes
+        if (isClaudeCode && data.claudeHtmlUrl) {
+          showClaudeReport(nodeId, data.claudeHtmlUrl);
+        } else {
+          hideClaudeReport();
         }
       } catch (e) {
         console.error('Failed to fetch node detail:', e);
@@ -978,7 +1089,11 @@
       btn.textContent = 'Running...';
 
       try {
-        const res = await fetch(`/api/node/run?nodeId=${nodeId}&single=true`, { method: 'POST' });
+        let url = `/api/node/run?nodeId=${nodeId}&single=true`;
+        if (currentSessionId) {
+          url += `&sessionId=${currentSessionId}`;
+        }
+        const res = await fetch(url, { method: 'POST' });
         const result = await res.json();
         log(`Node ${nodeId} started: ${result.sessionId}`);
         selectSession(result.sessionId);
@@ -994,26 +1109,48 @@
     function pollSessionStatus(sessionId) {
       // Stop previous polling
       if (pollInterval) {
-        clearInterval(pollInterval);
+        clearTimeout(pollInterval);
         pollInterval = null;
       }
 
+      // Show loading overlay
+      document.getElementById('loading-overlay').classList.add('visible');
+
       document.getElementById('active-session-info').innerHTML = `
         <div>Session: ${sessionId.slice(0, 8)}...</div>
-        <div style="color: #aaa; font-size: 12px;">Polling...</div>
+        <div style="color: #b8b8b8; font-size: 12px;">Polling...</div>
       `;
 
-      pollInterval = setInterval(async () => {
+      const checkStatus = async () => {
         try {
-          const res = await fetch(`/api/status/${sessionId}`);
+          const res = await fetch(`/api/session/${sessionId}/status`);
           if (!res.ok) {
-            clearInterval(pollInterval);
+            // Retry even on error (session may not be ready yet)
+            pollInterval = setTimeout(checkStatus, 1000);
             return;
           }
 
           const status = await res.json();
 
-          // Update node statuses in graph
+          // Hide loading overlay once
+          document.getElementById('loading-overlay').classList.remove('visible');
+
+          // Historical session with persisted node statuses (no active execution)
+          if (status.nodeStatuses && !status.complete && status.endTime) {
+            // Apply persisted node statuses
+            for (const [nid, nodeStatus] of Object.entries(status.nodeStatuses)) {
+              updateNodeStatus(nid, nodeStatus);
+            }
+            // Update session info
+            document.getElementById('active-session-info').innerHTML = `
+              <div>Session: ${sessionId.slice(0, 8)}...</div>
+              <span class="status-badge status-${status.status}">${status.status.charAt(0).toUpperCase() + status.status.slice(1)}</span>
+              <div style="color: #b8b8b8; font-size: 11px;">Historical session</div>
+            `;
+            return;
+          }
+
+          // Active session with node data from executor
           if (status.nodes) {
             for (const node of status.nodes) {
               updateNodeStatus(node.definition.id, node.status);
@@ -1038,17 +1175,21 @@
           }
 
           if (status.complete) {
-            clearInterval(pollInterval);
-            pollInterval = null;
             document.getElementById('run-btn').disabled = false;
             document.getElementById('run-btn').textContent = 'Run Workflow';
             log('Workflow completed');
             loadSessions();
+            return;
           }
         } catch (e) {
           console.error('Poll error:', e);
         }
-      }, 1000);
+        // Continue polling for active sessions
+        pollInterval = setTimeout(checkStatus, 1000);
+      };
+
+      // Start polling
+      checkStatus();
     }
 
     function updateNodeStatus(nodeId, status) {
@@ -1067,6 +1208,30 @@
       if (detailStatus && document.querySelector(`[data-node-id="${nodeId}"]`)?.classList.contains('active')) {
         detailStatus.textContent = status;
       }
+    }
+
+    // ============ Claude Report Panel ============
+
+    function showClaudeReport(nodeId, url) {
+      const container = document.getElementById('claude-report-container');
+      const graphPanel = document.getElementById('graph-panel');
+      const frame = document.getElementById('claude-report-frame');
+      const title = document.getElementById('claude-report-title');
+      currentClaudeHtmlUrl = url;
+      frame.src = url;
+      title.textContent = `${nodeId} - Claude Code Report`;
+      container.classList.add('active');
+      graphPanel.style.display = 'none';
+    }
+
+    function hideClaudeReport() {
+      const container = document.getElementById('claude-report-container');
+      const graphPanel = document.getElementById('graph-panel');
+      const frame = document.getElementById('claude-report-frame');
+      container.classList.remove('active');
+      graphPanel.style.display = '';
+      frame.src = '';
+      currentClaudeHtmlUrl = null;
     }
 
     // ============ Utility Functions ============
@@ -1188,14 +1353,6 @@
 
       log('Collapsed subgraph back to loop node');
     }
-
-    // Close dropdown when clicking outside
-    document.addEventListener('click', function (e) {
-      const selector = document.querySelector('.session-selector');
-      if (selector && !selector.contains(e.target)) {
-        document.getElementById('session-dropdown').classList.remove('show');
-      }
-    });
 
     // Initialize
     loadWorkflow();

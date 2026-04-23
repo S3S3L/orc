@@ -101,6 +101,7 @@ program
     GLOBAL_CONTEXT.outputDir = path.resolve(options.output);
     GLOBAL_CONTEXT.auditDir = path.resolve(options.audit);
     GLOBAL_CONTEXT.workspaceDir = path.resolve(options.workspace);
+    await GLOBAL_CONTEXT.setStorePath(GLOBAL_CONTEXT.outputDir);
 
     const { lastWorkflow, executionStates, executions } = GLOBAL_CONTEXT;
 
@@ -260,14 +261,26 @@ program
           return;
         }
 
-        const sessionId = startWorkflowExecution(
+        const nodeId = url.searchParams.get('nodeId') || undefined;
+        const sessionId = url.searchParams.get('sessionId') || undefined;
+        const isSingle = url.searchParams.get('single') === 'true';
+
+        // For single node execution, delete existing output to force re-run
+        if (isSingle && nodeId && sessionId) {
+          const outputFilePath = path.join(GLOBAL_CONTEXT.outputDir!, sessionId, `${nodeId}.json`);
+          try {
+            await fs.rm(outputFilePath, { force: true });
+          } catch { /* ignore */ }
+        }
+
+        startWorkflowExecution(
           lastWorkflow,
           options,
           workflowDir,
-          url.searchParams.get('cleanOldFiles') === 'true',  // Control cleanOldFiles via query param
-          url.searchParams.get('sessionId') || undefined,
-          url.searchParams.get('nodeId') || undefined,
-          url.searchParams.get('single') === 'true',  // Control single-node execution via query param
+          false,
+          sessionId,
+          nodeId,
+          isSingle,
         );
 
         res.end(JSON.stringify({ sessionId }));
@@ -286,7 +299,10 @@ program
 
         res.end(JSON.stringify({
           ...state,
-          nodes: [...executions.get(sessionId)?.getNodes().values() || []].map((node) => node || null)  // Optionally return current node states
+          nodes: [...executions.get(sessionId)?.getNodes().values() || []].map((node) => ({
+            definition: node.definition,
+            status: node.status
+          }))
         }));
         return;
       }
@@ -294,6 +310,38 @@ program
       // GET /api/sessions
       if (url.pathname === '/api/sessions' && req.method === 'GET') {
         res.end(JSON.stringify(GLOBAL_CONTEXT.sessionHistory));
+        return;
+      }
+
+      // GET /api/session/:sessionId/status
+      if (url.pathname.match(/^\/api\/session\/[^/]+\/status$/) && req.method === 'GET') {
+        const sessionId = url.pathname.replace('/api/session/', '').replace('/status', '');
+        // Check active execution state first
+        const activeState = executionStates.get(sessionId);
+        if (activeState) {
+          const executor = executions.get(sessionId);
+          res.end(JSON.stringify({
+            ...activeState,
+            nodes: [...(executor?.getNodes().values() || [])].map(n => ({
+              definition: n.definition,
+              status: n.status
+            }))
+          }));
+          return;
+        }
+        // Fall back to persisted session data
+        const session = GLOBAL_CONTEXT.sessionHistory.find(s => s.id === sessionId);
+        if (session) {
+          res.end(JSON.stringify({
+            status: session.status,
+            nodeStatuses: session.nodeStatuses || null,
+            startTime: session.startTime,
+            endTime: session.endTime
+          }));
+          return;
+        }
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'Session not found' }));
         return;
       }
 
@@ -414,7 +462,8 @@ program
           // Audit not available
         }
 
-        // For Claude Code nodes, load conversation messages
+        // For Claude Code nodes, load conversation messages and check for HTML export
+        let claudeHtmlUrl = null;
         if (nodeDef.type === 'claude-code' && sessionId) {
           try {
             const auditFiles = await fs.readdir(GLOBAL_CONTEXT.auditDir);
@@ -434,6 +483,22 @@ program
           } catch {
             // Messages not available
           }
+
+          // Check if HTML export file exists
+          try {
+            const htmlDir = path.join(GLOBAL_CONTEXT.outputDir, sessionId);
+            const htmlFiles = (await fs.readdir(htmlDir)).filter(f =>
+              f.startsWith('claude_code_') && f.endsWith(`_${nodeId}.html`)
+            );
+            if (htmlFiles.length > 0) {
+              const latestHtml = htmlFiles.sort().pop();
+              if (latestHtml) {
+                claudeHtmlUrl = `/api/node/${nodeId}/claude-html?sessionId=${sessionId}`;
+              }
+            }
+          } catch {
+            // HTML export not available
+          }
         }
 
         res.end(JSON.stringify({
@@ -442,9 +507,43 @@ program
           inputs: Object.keys(inputs).length > 0 ? inputs : null,
           output,
           audit,
-          claudeMessages
+          claudeMessages,
+          claudeHtmlUrl
         }));
         return;
+      }
+
+      // GET /api/node/:nodeId/claude-html?sessionId=xxx
+      if (url.pathname.match(/^\/api\/node\/[^/]+\/claude-html$/) && req.method === 'GET') {
+        const nodeId = url.pathname.replace('/api/node/', '').replace('/claude-html', '');
+        const sessionId = url.searchParams.get('sessionId') || '';
+
+        if (!GLOBAL_CONTEXT.outputDir) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: 'Output directory not configured' }));
+          return;
+        }
+
+        try {
+          const htmlDir = path.join(GLOBAL_CONTEXT.outputDir, sessionId);
+          const htmlFiles = (await fs.readdir(htmlDir)).filter(f =>
+            f.startsWith('claude_code_') && f.endsWith(`_${nodeId}.html`)
+          );
+          if (htmlFiles.length === 0) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'HTML export not found' }));
+            return;
+          }
+          const latestHtml = htmlFiles.sort().pop()!;
+          const htmlContent = await fs.readFile(path.join(htmlDir, latestHtml), 'utf-8');
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(htmlContent);
+          return;
+        } catch {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: 'Failed to read HTML export' }));
+          return;
+        }
       }
 
       res.statusCode = 404;
@@ -545,7 +644,10 @@ function startWorkflowExecution(
 ) {
   const sessionId = requestedSessionId || uuidv4();
 
-  const { executionStates } = GLOBAL_CONTEXT;
+  const { executionStates, executions } = GLOBAL_CONTEXT;
+
+  // Check if this is a reuse of an existing session (e.g., single node run in current session)
+  const isReusedSession = !!(requestedSessionId && executionStates.has(requestedSessionId));
 
   let state = executionStates.get(sessionId);
 
@@ -557,25 +659,29 @@ function startWorkflowExecution(
       complete: false
     };
     executionStates.set(sessionId, state);
-  } else {
+  } else if (!isReusedSession) {
+    // Only reset state for full reruns, not for single node additions
     state.status = 'running';
     state.logs.push(`Workflow resumed: ${sessionId}`);
     state.startTime = Date.now();
     state.complete = false;
   }
 
-  // Record session history
-  const summary: SessionSummary = {
-    id: sessionId,
-    workflowName: workflow.name,
-    status: 'running',
-    startTime: state.startTime,
-    nodeCount: workflow.nodes.length
-  };
-  GLOBAL_CONTEXT.sessionHistory.unshift(summary);
+  // Record session history (only for new sessions, not for reused ones)
+  if (!isReusedSession) {
+    const summary: SessionSummary = {
+      id: sessionId,
+      workflowName: workflow.name,
+      status: 'running',
+      startTime: state.startTime,
+      nodeCount: workflow.nodes.length
+    };
+    GLOBAL_CONTEXT.sessionHistory.unshift(summary);
+  }
 
   void runWorkflow(workflow, options, sessionId, workflowDir, cleanOldFiles, startNodeId, single)
-    .then(() => {
+    .then(async () => {
+      if (isReusedSession) return;  // Don't override state for single-node-in-session
       const currentState = executionStates.get(sessionId);
       if (currentState) {
         currentState.status = 'complete';
@@ -585,9 +691,19 @@ function startWorkflowExecution(
       if (s) {
         s.status = 'complete';
         s.endTime = Date.now();
+        // Capture node statuses from executor
+        const executor = executions.get(sessionId);
+        if (executor) {
+          s.nodeStatuses = {};
+          for (const [nid, node] of executor.getNodes()) {
+            s.nodeStatuses[nid] = node.status;
+          }
+        }
       }
+      await GLOBAL_CONTEXT.saveSessions();
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      if (isReusedSession) return;  // Don't override state for single-node-in-session
       const currentState = executionStates.get(sessionId);
       if (currentState) {
         currentState.status = 'error';
@@ -598,7 +714,16 @@ function startWorkflowExecution(
       if (s) {
         s.status = 'error';
         s.endTime = Date.now();
+        // Capture partial node statuses from executor
+        const executor = executions.get(sessionId);
+        if (executor) {
+          s.nodeStatuses = {};
+          for (const [nid, node] of executor.getNodes()) {
+            s.nodeStatuses[nid] = node.status;
+          }
+        }
       }
+      await GLOBAL_CONTEXT.saveSessions();
     });
 
   return sessionId;

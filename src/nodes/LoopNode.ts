@@ -34,7 +34,8 @@ export class LoopNode implements NodeExecutor {
                 outputDir: `${context.outputDir}/${node.id}-${attempt}`, // Separate output dir for each attempt
                 auditDir: `${context.auditDir}/${node.id}-${attempt}`, // Separate audit dir for each attempt
                 tempBaseDir: `${context.tempBaseDir}/${node.id}-${attempt}`, // Separate temp dir for each attempt
-                nodeOutputs: new Map() // Reset node outputs for each attempt
+                nodeOutputs: new Map(), // Reset node outputs for each attempt
+                debug: {} // Clear debug context so subgraph runs as normal full execution
             };
 
             const subExecutionState: ExecutionState = {

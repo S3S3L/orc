@@ -244,6 +244,7 @@ export interface SessionSummary {
   startTime: number;
   endTime?: number;
   nodeCount: number;
+  nodeStatuses?: Record<string, string>;  // nodeId -> NodeStatus snapshot
 }
 
 // ============ Audit Entries ============

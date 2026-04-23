@@ -690,17 +690,14 @@ class ConversationExporter {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Claude对话导出 - ${sessionId}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown.min.css">
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      line-height: 1.6;
-      color: #24292e;
-      background-color: #f6f8fa;
+      line-height: 1.7;
+      color: #111;
+      background-color: #e4e8ec;
       margin: 0;
       padding: 20px;
     }
@@ -708,122 +705,220 @@ class ConversationExporter {
     .container {
       max-width: 1200px;
       margin: 0 auto;
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      background: #fff;
+      padding: 36px 48px;
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
     }
 
     h1 {
-      color: #0969da;
-      border-bottom: 2px solid #d0d7de;
-      padding-bottom: 10px;
+      color: #111;
+      border-bottom: 2px solid #ccc;
+      padding-bottom: 12px;
       margin-bottom: 30px;
+      font-size: 28px;
     }
 
     .message {
-      margin: 25px 0;
-      padding: 20px;
-      border-radius: 8px;
-      border-left: 4px solid #0969da;
-      background-color: #f6f8fa;
+      margin: 28px 0;
+      padding: 20px 24px;
+      border-radius: 10px;
+      border-left: 5px solid #2563eb;
+      background-color: #f0f4f8;
     }
 
     .message.user {
-      border-left-color: #8250df;
-      background-color: #fbefff;
+      border-left-color: #7c3aed;
+      background-color: #f0e6ff;
     }
 
     .message.assistant {
-      border-left-color: #1f883d;
-      background-color: #dafbe1;
+      border-left-color: #16a34a;
+      background-color: #dcfce7;
     }
 
     .subagent-message {
       margin-left: 20px;
-      border-left: 3px dashed #0969da;
-      background-color: #fff;
+      border-left: 3px dashed #2563eb;
+      background-color: #fafbfc;
       font-size: 0.95em;
     }
 
     .role {
-      font-weight: 600;
+      font-weight: 700;
       margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 1.1em;
+      font-size: 1.15em;
+      color: #111;
     }
 
-    .role-icon {
-      font-size: 1.3em;
-    }
-
-    .role-name {
-      flex: 0 0 auto;
-    }
+    .role-icon { font-size: 1.3em; }
+    .role-name { flex: 0 0 auto; }
 
     .timestamp {
       font-size: 0.8em;
-      color: #57606a;
+      color: #444;
       font-weight: 400;
       margin-left: auto;
-      opacity: 0.8;
     }
 
     .content {
       margin: 15px 0;
       word-wrap: break-word;
+      color: #111;
     }
 
-    .content pre {
-      white-space: pre-wrap;
+    .content pre { white-space: pre-wrap; }
+
+    /* Inline markdown styles with high contrast - no external dependency */
+    .markdown-body, [data-markdown-text] {
+      color: #111;
     }
 
-    .markdown-body {
-      background-color: transparent !important;
-      padding: 10px 0;
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+      color: #111;
+      margin-top: 20px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .markdown-body h1 { font-size: 1.6em; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+    .markdown-body h2 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .markdown-body h3 { font-size: 1.2em; }
+
+    .markdown-body p {
+      color: #111;
+      margin: 10px 0;
+      line-height: 1.7;
+    }
+
+    .markdown-body ul, .markdown-body ol {
+      padding-left: 24px;
+      color: #111;
+      margin: 10px 0;
+    }
+
+    .markdown-body li {
+      color: #111;
+      margin: 4px 0;
+      line-height: 1.6;
+    }
+
+    .markdown-body code {
+      background-color: #eee;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      color: #111;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    .markdown-body pre {
+      background-color: #f5f5f5;
+      padding: 16px;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid #d5d5d5;
+      margin: 12px 0;
+    }
+
+    .markdown-body pre code {
+      background: none;
+      padding: 0;
+      color: #111;
+    }
+
+    .markdown-body blockquote {
+      border-left: 4px solid #ccc;
+      padding: 8px 16px;
+      margin: 12px 0;
+      background-color: #f8f8f8;
+      color: #222;
+    }
+
+    .markdown-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 12px 0;
+    }
+
+    .markdown-body th, .markdown-body td {
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      text-align: left;
+      color: #111;
+    }
+
+    .markdown-body th {
+      background-color: #f0f0f0;
+      font-weight: 700;
+    }
+
+    .markdown-body a {
+      color: #2563eb;
+      text-decoration: underline;
+    }
+
+    .markdown-body strong {
+      color: #111;
+      font-weight: 700;
+    }
+
+    .markdown-body em { font-style: italic; }
+
+    .markdown-body hr {
+      border: none;
+      border-top: 1px solid #ccc;
+      margin: 20px 0;
+    }
+
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
     }
 
     .tool-call-details, .tool-result-details, .subagent-details {
       margin: 15px 0;
-      border: 1px solid #d0d7de;
-      border-radius: 6px;
+      border: 1px solid #c0c8d0;
+      border-radius: 8px;
       overflow: hidden;
     }
 
     .subagent-details {
       margin-top: 15px;
-      border: 2px solid #0969da;
-      background-color: #f0f6ff;
+      border: 2px solid #2563eb;
+      background-color: #e3edf7;
     }
 
     .tool-call-summary, .tool-result-summary, .subagent-summary {
-      padding: 12px 15px;
-      background-color: #f6f8fa;
+      padding: 12px 16px;
+      background-color: #eef1f4;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 10px;
-      font-weight: 500;
+      font-weight: 600;
+      color: #111;
       user-select: none;
     }
 
     .subagent-summary {
-      background-color: #ddf4ff;
+      background-color: #c8e1ff;
+      color: #111;
     }
 
     .tool-call-summary:hover, .tool-result-summary:hover, .subagent-summary:hover {
-      background-color: #e7ecf0;
+      background-color: #dde3ea;
     }
 
-    .tool-icon, .result-icon, .subagent-icon {
-      font-size: 1.2em;
-    }
+    .tool-icon, .result-icon, .subagent-icon { font-size: 1.2em; }
 
     .tool-name {
-      color: #0969da;
-      font-weight: 600;
+      color: #111;
+      font-weight: 700;
     }
 
     .tool-badge {
@@ -831,29 +926,29 @@ class ConversationExporter {
       padding: 2px 8px;
       border-radius: 12px;
       font-size: 0.75em;
-      font-weight: 500;
-      background-color: #ddf4ff;
-      color: #0969da;
+      font-weight: 600;
+      background-color: #c8e1ff;
+      color: #1e40af;
       margin-left: 8px;
     }
 
     .agent-badge {
-      background-color: #ddf4ff;
-      color: #0969da;
+      background-color: #c8e1ff;
+      color: #1e40af;
     }
 
     .tool-description {
-      color: #57606a;
+      color: #333;
       flex: 1;
       margin-left: 8px;
     }
 
     .tool-timing {
       font-size: 0.75em;
-      color: #57606a;
+      color: #444;
       font-weight: 400;
       padding: 2px 8px;
-      background-color: rgba(0, 0, 0, 0.05);
+      background-color: rgba(0, 0, 0, 0.08);
       border-radius: 4px;
       white-space: nowrap;
     }
@@ -861,75 +956,72 @@ class ConversationExporter {
     .toggle-icon {
       margin-left: auto;
       transition: transform 0.2s;
+      color: #333;
     }
 
-    details[open] > summary .toggle-icon {
-      transform: rotate(180deg);
-    }
+    details[open] > summary .toggle-icon { transform: rotate(180deg); }
 
     .tool-call-content, .tool-result-content, .subagent-content {
-      padding: 15px;
-      background-color: white;
+      padding: 16px;
+      background-color: #ffffff;
+      color: #111;
     }
 
     .subagent-content {
-      background-color: #fff;
-      border-top: 1px solid #0969da;
+      background-color: #f8f9fa;
+      border-top: 1px solid #2563eb;
     }
 
-    .tool-section {
-      margin: 15px 0;
-    }
+    .tool-section { margin: 15px 0; }
 
     .tool-section h5 {
       margin: 0 0 10px 0;
-      font-size: 0.9em;
-      font-weight: 600;
-      color: #57606a;
+      font-size: 0.95em;
+      font-weight: 700;
+      color: #222;
     }
 
     .tool-result-section {
-      border-top: 1px solid #d0d7de;
+      border-top: 1px solid #d5d5d5;
       padding-top: 15px;
       margin-top: 20px;
     }
 
     pre {
-      background-color: #f6f8fa;
+      background-color: #f5f5f5;
       padding: 16px;
       border-radius: 6px;
       overflow-x: auto;
       margin: 10px 0;
+      border: 1px solid #d5d5d5;
+      color: #111;
     }
 
     code {
       font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
       font-size: 0.9em;
+      color: #111;
     }
 
     .toggle-button {
       margin-top: 10px;
       padding: 8px 16px;
-      background-color: #f6f8fa;
-      border: 1px solid #d0d7de;
+      background-color: #e8ecf0;
+      border: 1px solid #c0c8d0;
       border-radius: 6px;
       cursor: pointer;
       font-size: 0.9em;
-      color: #0969da;
+      color: #1e40af;
       transition: background-color 0.2s;
+      font-weight: 500;
     }
 
     .toggle-button:hover {
-      background-color: #e7ecf0;
+      background-color: #d4dbe3;
     }
 
-    .collapsible-content {
-      margin: 15px 0;
-    }
-
-    .hidden-content {
-      margin-top: 10px;
-    }
+    .collapsible-content { margin: 15px 0; }
+    .hidden-content { margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -940,13 +1032,7 @@ class ConversationExporter {
 
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <script>
-    // 配置marked
-    marked.setOptions({
-      breaks: true,
-      gfm: true
-    });
-
-    // 渲染所有markdown内容
+    marked.setOptions({ breaks: true, gfm: true });
     document.addEventListener('DOMContentLoaded', () => {
       const elements = document.querySelectorAll('[data-markdown-text]');
       elements.forEach(el => {
