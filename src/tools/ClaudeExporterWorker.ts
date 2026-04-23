@@ -43,7 +43,10 @@ function startTimer(): void {
 				if (!fs.existsSync(jsonlPath)) {
 					continue;
 				}
-				exporter.exportConversation(jsonlPath, outputPath, false);
+				const exportResult = exporter.exportConversation(jsonlPath, outputPath, false);
+				if (!exportResult.success) {
+					console.warn(`Failed to export conversation for session ${sessionId}, node ${nodeId}`);
+				}
 				if (task.disabled) {
 					tasks.delete(`${sessionId}-${nodeId}`);
 				}

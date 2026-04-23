@@ -1,0 +1,22 @@
+{
+    "type": "object",
+    "properties": {
+        "maxRetries": {
+            "type": "number"
+        },
+        "timeout": {
+            "type": "number"
+        },
+        "featureFlags": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "maxRetries",
+        "timeout",
+        "featureFlags"
+    ]
+}

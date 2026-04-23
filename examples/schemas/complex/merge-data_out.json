@@ -1,0 +1,19 @@
+{
+    "type": "object",
+    "properties": {
+        "merged": {
+            "type": "boolean"
+        },
+        "summary": {
+            "type": "string"
+        },
+        "itemCount": {
+            "type": "number"
+        }
+    },
+    "required": [
+        "merged",
+        "summary",
+        "itemCount"
+    ]
+}

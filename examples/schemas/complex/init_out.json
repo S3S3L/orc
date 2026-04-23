@@ -1,0 +1,19 @@
+{
+    "type": "object",
+    "properties": {
+        "baseUrl": {
+            "type": "string"
+        },
+        "apiKey": {
+            "type": "string"
+        },
+        "timestamp": {
+            "type": "string"
+        }
+    },
+    "required": [
+        "baseUrl",
+        "apiKey",
+        "timestamp"
+    ]
+}

@@ -1,0 +1,19 @@
+{
+    "type": "object",
+    "properties": {
+        "reportId": {
+            "type": "string"
+        },
+        "status": {
+            "type": "string"
+        },
+        "generatedAt": {
+            "type": "string"
+        }
+    },
+    "required": [
+        "reportId",
+        "status",
+        "generatedAt"
+    ]
+}

@@ -985,7 +985,12 @@ class ConversationExporter {
     }
 
     if (messages.length === 0) {
-      throw new Error('No valid messages found in JSONL file');
+      return {
+        success: false,
+        outputPath,
+        fileSize: "0",
+        subagentCount: 0,
+      }
     }
 
     // 获取session目录

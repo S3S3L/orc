@@ -1,0 +1,40 @@
+{
+    "type": "object",
+    "properties": {
+        "analysis": {
+            "type": "string"
+        },
+        "keyFindings": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "riskLevel": {
+            "type": "string",
+            "enum": [
+                "low",
+                "medium",
+                "high"
+            ]
+        },
+        "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        }
+    },
+    "required": [
+        "analysis",
+        "keyFindings",
+        "recommendations",
+        "riskLevel",
+        "confidence"
+    ]
+}

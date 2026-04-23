@@ -2,24 +2,15 @@
   "version": "1.0",
   "name": "复杂工作流测试",
   "description": "验证一对多输出和多对一输入功能",
+  "schemaBaseDir": ["./schemas/complex"],
   "nodes": [
     {
       "id": "init",
       "type": "bash",
       "name": "初始化数据",
       "description": "生成基础数据，输出会被传递给两个下游节点",
-      "inputs": {},
-      "output": {
-        "type": "object",
-        "properties": {
-          "baseUrl": { "type": "string" },
-          "apiKey": { "type": "string" },
-          "timestamp": { "type": "string" }
-        },
-        "required": ["baseUrl", "apiKey", "timestamp"]
-      },
       "config": {
-        "script": "./scripts/init-data.sh",
+        "script": "./scripts/complex/init-data.sh",
         "argsPassing": { "type": "stdin" }
       }
     },
@@ -28,26 +19,8 @@
       "type": "bash",
       "name": "获取用户数据",
       "description": "使用 init 的数据获取用户信息",
-      "inputs": {
-        "config": {
-          "type": "object",
-          "properties": {
-            "baseUrl": { "type": "string" },
-            "apiKey": { "type": "string" }
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "userId": { "type": "string" },
-          "userName": { "type": "string" },
-          "email": { "type": "string" }
-        },
-        "required": ["userId", "userName", "email"]
-      },
       "config": {
-        "script": "./scripts/fetch-user.sh",
+        "script": "./scripts/complex/fetch-user.sh",
         "argsPassing": { "type": "stdin" }
       }
     },
@@ -56,26 +29,8 @@
       "type": "bash",
       "name": "获取配置数据",
       "description": "使用 init 的数据获取配置信息",
-      "inputs": {
-        "config": {
-          "type": "object",
-          "properties": {
-            "baseUrl": { "type": "string" },
-            "apiKey": { "type": "string" }
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "maxRetries": { "type": "number" },
-          "timeout": { "type": "number" },
-          "featureFlags": { "type": "array", "items": { "type": "string" } }
-        },
-        "required": ["maxRetries", "timeout", "featureFlags"]
-      },
       "config": {
-        "script": "./scripts/fetch-config.sh",
+        "script": "./scripts/complex/fetch-config.sh",
         "argsPassing": { "type": "stdin" }
       }
     },
@@ -84,35 +39,8 @@
       "type": "python",
       "name": "合并数据",
       "description": "接收两个上游节点的输出并合并",
-      "inputs": {
-        "userData": {
-          "type": "object",
-          "properties": {
-            "userId": { "type": "string" },
-            "userName": { "type": "string" },
-            "email": { "type": "string" }
-          }
-        },
-        "appConfig": {
-          "type": "object",
-          "properties": {
-            "maxRetries": { "type": "number" },
-            "timeout": { "type": "number" },
-            "featureFlags": { "type": "array", "items": { "type": "string" } }
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "merged": { "type": "boolean" },
-          "summary": { "type": "string" },
-          "itemCount": { "type": "number" }
-        },
-        "required": ["merged", "summary", "itemCount"]
-      },
       "config": {
-        "script": "./scripts/merge-data.py",
+        "script": "./scripts/complex/merge-data.py",
         "argsPassing": { "type": "stdin" }
       }
     },
@@ -121,27 +49,8 @@
       "type": "node",
       "name": "生成报告",
       "description": "使用合并后的数据生成最终报告",
-      "inputs": {
-        "data": {
-          "type": "object",
-          "properties": {
-            "merged": { "type": "boolean" },
-            "summary": { "type": "string" },
-            "itemCount": { "type": "number" }
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "reportId": { "type": "string" },
-          "status": { "type": "string" },
-          "generatedAt": { "type": "string" }
-        },
-        "required": ["reportId", "status", "generatedAt"]
-      },
       "config": {
-        "script": "./scripts/generate-report.js",
+        "script": "./scripts/complex/generate-report.js",
         "argsPassing": { "type": "stdin" }
       }
     },
@@ -150,37 +59,10 @@
       "type": "claude-code",
       "name": "AI 数据分析",
       "description": "使用 Claude Code 对合并数据进行智能分析并生成报告",
-      "inputs": {
-        "mergedData": {
-          "type": "object",
-          "properties": {
-            "merged": { "type": "boolean" },
-            "summary": { "type": "string" },
-            "itemCount": { "type": "number" }
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "analysis": { "type": "string" },
-          "keyFindings": { "type": "array", "items": { "type": "string" } },
-          "recommendations": { "type": "array", "items": { "type": "string" } },
-          "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
-        },
-        "required": ["analysis", "keyFindings", "recommendations", "riskLevel", "confidence"]
-      },
       "config": {
         "prompt": {
-          "markdown": "./prompts/analysis-report.md",
+          "markdown": "./prompts/complex/analysis-report.md",
           "template": true
-        },
-        "inputMapping": {
-          "mergedData": {
-            "target": "markdown",
-            "section": "input"
-          }
         },
         "execution": {
           "workDir": "{{nodeId}}",
