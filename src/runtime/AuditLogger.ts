@@ -11,7 +11,7 @@ export class AuditLogger {
   }
 
   /**
-   * 开始一个新的审计条目
+  * Start a new audit entry
    */
   start(nodeId: string, extra: { tempDir: string }): AuditEntry {
     const entry: AuditEntry = {
@@ -31,7 +31,7 @@ export class AuditLogger {
   }
 
   /**
-   * 更新审计条目状态
+  * Update audit entry phase
    */
   update(entry: AuditEntry, phase: 'validate' | 'execute' | 'retry'): void {
     entry.phase = phase;
@@ -39,7 +39,7 @@ export class AuditLogger {
   }
 
   /**
-   * 标记审计条目为完成
+  * Mark audit entry as complete
    */
   complete(entry: AuditEntry): void {
     entry.phase = 'complete';
@@ -50,7 +50,7 @@ export class AuditLogger {
   }
 
   /**
-   * 标记审计条目为错误
+  * Mark audit entry as failed
    */
   error(entry: AuditEntry): void {
     entry.phase = 'error';
@@ -58,7 +58,7 @@ export class AuditLogger {
   }
 
   /**
-   * 标记审计条目为跳过
+  * Mark audit entry as skipped
    */
   skipped(entry: AuditEntry): void {
     entry.phase = 'skipped';
@@ -66,7 +66,7 @@ export class AuditLogger {
   }
 
   /**
-   * 持久化审计条目到文件
+  * Persist audit entry to disk
    */
   private async persist(entry: AuditEntry): Promise<void> {
     const logFile = path.join(this.auditDir, `${entry.id}.json`);
@@ -74,7 +74,7 @@ export class AuditLogger {
   }
 
   /**
-   * 获取所有审计条目
+  * Get all audit entries
    */
   getEntries(): AuditEntry[] {
     return Array.from(this.entries.values());

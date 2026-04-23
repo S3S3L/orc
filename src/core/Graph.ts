@@ -1,37 +1,80 @@
 import Graph from 'graphology';
 import { topologicalSort } from 'graphology-dag';
 import Ajv from 'ajv';
-import type { WorkflowDefinition, NodeDefinition, EdgeDefinition } from '../types.js';
-import { WORKFLOW_SCHEMA } from '../schema.js';
+import type { NodeDefinition, EdgeDefinition, SchemaDefinition, GraphDefinition } from '../types.js';
+import { GRAPH_SCHEMA } from '../schema.js';
+import path from 'path';
+import fs from 'fs';
 
 export class WorkflowGraph {
   private graph: Graph;
   private nodes: Map<string, NodeDefinition> = new Map();
   private ajv: Ajv;
+  private graphDir: string;
 
-  constructor(workflow: WorkflowDefinition) {
+  constructor(graphDef: GraphDefinition, graphDir: string) {
     this.graph = new Graph();
     this.ajv = new Ajv({ allErrors: true });
-    this.build(workflow);
+    this.graphDir = graphDir;
+    if (!graphDef.schemas) {
+      graphDef.schemas = {};
+    }
+    this.prepareSchema(graphDef, graphDir);
+
+    this.build(graphDef);
   }
 
-  private build(workflow: WorkflowDefinition): void {
-    // 1. 校验工作流 Schema
-    this.validateWorkflowSchema(workflow);
+  private prepareSchema(schemaDef: SchemaDefinition, graphDir: string) {
+    for (const dir of schemaDef.schemaBaseDir || []) {
+      const entries = fs.readdirSync(path.resolve(graphDir, dir), { withFileTypes: true, encoding: 'utf-8' });
+      entries.forEach(file => {
+        if (file.isFile() && file.name.endsWith('.json')) {
+          try {
+            const schemaPath = path.resolve(graphDir, dir, file.name);
+            const schemaContent = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+            const fileNameWithoutExt = path.parse(file.name).name;
+            schemaDef.schemas[fileNameWithoutExt] = { file: path.join(dir, file.name), content: schemaContent };
+          } catch (e) {
+            throw new Error(`Failed to load schema file ${file.name}: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+      });
+    }
 
-    // 2. 添加节点
-    for (const node of workflow.nodes) {
+    // Preload and parse all schema files
+    for (const [, schema] of Object.entries(schemaDef.schemas || {})) {
+      if (schema.file) {
+        const schemaPath = path.resolve(this.graphDir, schema.file);
+        schema.content = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+      }
+    }
+  }
+
+  private build(graphDef: GraphDefinition): void {
+
+    // 1. Add nodes
+    for (const node of graphDef.nodes) {
+      if (!node.output) {
+        node.output = {
+          schema: {},
+          ref: `${node.id}_out`
+        };
+      }
+      node.output.schema = graphDef.schemas[node.output.ref]?.content || node.output.schema;
+      if (!node.inputs) {
+        node.inputs = {};
+      }
       this.graph.addNode(node.id, node);
       this.nodes.set(node.id, node);
     }
 
-    // 3. 添加边（包括默认 to 和 condition.branches 中的目标）
-    for (const edge of workflow.edges) {
+    // 2. Add edges, including default `to` targets and `condition.branches` targets
+    for (const edge of graphDef.edges) {
       if (!this.graph.hasNode(edge.from.nodeId)) {
         throw new Error(`Edge ${edge.id}: source node ${edge.from.nodeId} not found`);
       }
 
-      // 添加默认的 to 边（仅当 edge.to 存在时）
+      // Add the default `to` edge when `edge.to` exists
       if (edge.to) {
         if (!this.graph.hasNode(edge.to.nodeId)) {
           throw new Error(`Edge ${edge.id}: target node ${edge.to.nodeId} not found`);
@@ -40,78 +83,82 @@ export class WorkflowGraph {
         this.graph.addDirectedEdge(edge.from.nodeId, edge.to.nodeId, {
           input: edge.to.input,
           transform: edge.transform,
-          condition: edge.condition,  // 存储条件配置
-          edgeId: edge.id,  // 存储边的 ID
-          isDefaultEdge: true  // 标记为默认边
+          condition: edge.condition,  // Store condition config
+          edgeId: edge.id,  // Store edge ID
+          isDefaultEdge: true  // Mark as a default edge
         });
+
+        this.nodes.get(edge.to.nodeId)!.inputs[edge.to.input] = this.nodes.get(edge.from.nodeId)!.output.schema;
       }
 
-      // 添加 condition.branches 中的边
+      // Add edges for `condition.branches`
       if (edge.condition?.branches) {
         for (const branch of edge.condition.branches) {
           if (!this.graph.hasNode(branch.to.nodeId)) {
             throw new Error(`Edge ${edge.id}: branch target node ${branch.to.nodeId} not found`);
           }
 
-          // 检查是否已存在相同的边
+          // Check whether the same edge already exists
           const existingEdge = this.graph.hasEdge(edge.from.nodeId, branch.to.nodeId);
           if (existingEdge) {
-            // 已存在，跳过
+            // Already exists, skip it
             continue;
           }
 
           this.graph.addDirectedEdge(edge.from.nodeId, branch.to.nodeId, {
             input: branch.to.input,
             transform: edge.transform,
-            condition: edge.condition,  // 存储条件配置
-            edgeId: edge.id,  // 存储边的 ID
-            branchTarget: branch.to  // 标记为分支目标
+            condition: edge.condition,  // Store condition config
+            edgeId: edge.id,  // Store edge ID
+            branchTarget: branch.to  // Mark as a branch target
           });
         }
       }
     }
+    // 3. Validate graph schema
+    this.validateGraphSchema(graphDef);
 
-    // 4. 校验 DAG（无环）
+    // 4. Validate DAG (acyclic)
     this.validateDAG();
 
-    // 5. 校验 Schema 连接
-    this.validateSchemaConnections(workflow.edges);
+    // 5. Validate schema connections
+    this.validateSchemaConnections(graphDef.edges);
   }
 
-  private validateWorkflowSchema(workflow: WorkflowDefinition): void {
-    const validate = this.ajv.compile(WORKFLOW_SCHEMA);
-    if (!validate(workflow)) {
+  private validateGraphSchema(graphDef: GraphDefinition): void {
+    const validate = this.ajv.compile(GRAPH_SCHEMA);
+    if (!validate(graphDef)) {
       throw new Error(
-        `Workflow schema validation failed: ${this.ajv.errorsText(validate.errors)}`
+        `Graph schema validation failed: ${this.ajv.errorsText(validate.errors)}`
       );
     }
   }
 
   private validateDAG(): void {
     try {
-      // graphology-dag 的 topologicalSort 函数会检查是否有环
+      // graphology-dag's topologicalSort also validates that the graph is acyclic
       topologicalSort(this.graph);
     } catch (e) {
       if (e instanceof Error) {
-        throw new Error(`Workflow contains cycles: ${e.message}`);
+        throw new Error(`Graph contains cycles: ${e.message}`);
       }
-      throw new Error('Workflow contains cycles');
+      throw new Error('Graph contains cycles');
     }
   }
 
   private validateSchemaConnections(edges: EdgeDefinition[]): void {
-    // 按目标节点分组边（包括边的 to 和 condition.branches 中的 to）
+    // Group edges by target node, including both `to` and `condition.branches` targets
     const edgesByTarget = new Map<string, Array<{ edge: EdgeDefinition; input: string }>>();
 
     for (const edge of edges) {
-      // 添加边的默认 to 目标（仅当 edge.to 存在时）
+      // Add default `to` target when `edge.to` exists
       if (edge.to) {
         const defaultList = edgesByTarget.get(edge.to.nodeId) || [];
         defaultList.push({ edge, input: edge.to.input });
         edgesByTarget.set(edge.to.nodeId, defaultList);
       }
 
-      // 添加 condition.branches 中的目标
+      // Add targets from `condition.branches`
       if (edge.condition?.branches) {
         for (const branch of edge.condition.branches) {
           const list = edgesByTarget.get(branch.to.nodeId) || [];
@@ -121,14 +168,14 @@ export class WorkflowGraph {
       }
     }
 
-    // 校验每个节点的输入覆盖
+    // Validate input coverage for each node
     for (const [nodeId, incomingEdges] of edgesByTarget.entries()) {
       const node = this.nodes.get(nodeId);
       if (!node) continue;
 
       const providedInputs = new Set(incomingEdges.map(e => e.input));
 
-      // 检查节点定义中的所有输入
+      // Check all inputs defined on the node
       for (const inputName of Object.keys(node.inputs)) {
         if (!providedInputs.has(inputName)) {
           throw new Error(
@@ -140,25 +187,27 @@ export class WorkflowGraph {
   }
 
   /**
-   * 获取拓扑排序的执行顺序
+  * Get topological execution order
    */
   getExecutionOrder(): string[] {
     return topologicalSort(this.graph);
   }
 
   /**
-   * 获取节点的所有输入边
+  * Get all incoming edges for a node
    */
-  getIncomingEdges(nodeId: string): Array<{ id: string; from: string; input: string; condition?: {
-    branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
-    onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
-  } }> {
+  getIncomingEdges(nodeId: string): Array<{
+    id: string; from: string; input: string; condition?: {
+      branches: Array<{ expression: string; to: { nodeId: string; input: string } }>;
+      onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
+    }
+  }> {
     const edges = this.graph
       .inEdges(nodeId)
       .map((edge: any) => {
         const attrs = this.graph.getEdgeAttributes(edge);
         return {
-          id: attrs.edgeId || edge,  // 使用存储的 edgeId
+          id: attrs.edgeId || edge,  // Use stored edgeId
           from: this.graph.source(edge)!,
           input: attrs.input,
           condition: attrs.condition
@@ -168,28 +217,28 @@ export class WorkflowGraph {
   }
 
   /**
-   * 获取节点定义
+  * Get node definition
    */
   getNode(nodeId: string): NodeDefinition | undefined {
     return this.nodes.get(nodeId);
   }
 
   /**
-   * 获取所有节点
+  * Get all nodes
    */
   getAllNodes(): NodeDefinition[] {
     return Array.from(this.nodes.values());
   }
 
   /**
-   * 获取图的大小
+  * Get graph size
    */
   get size(): number {
     return this.graph.order;
   }
 
   /**
-   * 获取并行执行组 - 将节点按层级分组，同一组内节点可并行执行
+  * Get parallel execution groups by level. Nodes in the same group can run in parallel.
    */
   getParallelGroups(): string[][] {
     const executionOrder = topologicalSort(this.graph);
@@ -197,14 +246,14 @@ export class WorkflowGraph {
     const nodeLevel = new Map<string, number>();
 
     for (const nodeId of executionOrder) {
-      // 使用入边来计算层级
+      // Use incoming edges to compute node level
       const incomingEdges = this.graph.inEdges(nodeId);
       const maxPredLevel = incomingEdges.length === 0
         ? -1
         : Math.max(...incomingEdges.map((edge: any) => {
-            const source = this.graph.source(edge);
-            return nodeLevel.get(source!) ?? 0;
-          }));
+          const source = this.graph.source(edge);
+          return nodeLevel.get(source!) ?? 0;
+        }));
 
       const level = maxPredLevel + 1;
       nodeLevel.set(nodeId, level);
@@ -219,7 +268,7 @@ export class WorkflowGraph {
   }
 
   /**
-   * 获取所有节点的输出（用于条件判断）
+  * Get outputs for all nodes (for condition evaluation)
    */
   getAllNodeOutputs(): Record<string, any> {
     const outputs: Record<string, any> = {};
@@ -230,7 +279,7 @@ export class WorkflowGraph {
   }
 
   /**
-   * 设置节点输出（用于条件判断）
+  * Set node output (reserved for condition evaluation)
    */
   setNodeOutput(nodeId: string, output: any): void {
     // Placeholder for future use
@@ -239,20 +288,37 @@ export class WorkflowGraph {
   getRootNodes(): string[] {
     return this.graph
       .nodes()
-      .filter((nodeId: string) => this.graph.inDegree(nodeId) === 0);
+      .filter((nodeId: string) => this.graph.inDegree(nodeId) === 0 && this.graph.outDegree(nodeId) > 0);
   }
 
-  getUpstreamNodes(nodeId: string): string[] {
+  getDirectUpstreamNodes(nodeId: string): string[] {
     return this.graph
       .inNeighbors(nodeId);
   }
 
-  getDownstreamNodes(nodeId: string): string[] {
+  getDirectDownstreamNodes(nodeId: string): string[] {
     return this.graph
       .outNeighbors(nodeId);
   }
 
-  getAllValideNodes(): string[] {
+  getAllDownstreamNodes(nodeId: string): string[] {
+    const visited = new Set<string>();
+    const stack = [nodeId];
+
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (!visited.has(current)) {
+        visited.add(current);
+        const neighbors = this.graph.outNeighbors(current);
+        stack.push(...neighbors);
+      }
+    }
+
+    visited.delete(nodeId); // Remove the starting node itself
+    return Array.from(visited);
+  }
+
+  getAllValidNodes(): string[] {
     return this.graph
       .nodes()
       .filter((nodeId: string) => this.graph.inDegree(nodeId) > 0 || this.graph.outDegree(nodeId) > 0);

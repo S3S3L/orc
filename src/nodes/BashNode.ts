@@ -14,17 +14,17 @@ export class BashNode implements NodeExecutor {
     const config = node.config as BashConfig;
     const tempDir = context.tempBaseDir;
 
-    // 解析脚本路径
+    // Resolve script path
     const scriptPath = path.isAbsolute(config.script)
       ? config.script
       : path.join(context.workflowDir, config.script);
 
-    // 构建命令参数
+    // Build command arguments
     const args: string[] = [];
     const env: Record<string, string> = {};
     let stdinData: string | undefined;
 
-    // 处理参数传递
+    // Handle argument passing
     switch (config.argsPassing.type) {
       case 'stdin':
         stdinData = JSON.stringify(inputs);
@@ -38,7 +38,7 @@ export class BashNode implements NodeExecutor {
             if (mapping.type === 'string') {
               args[mapping.position ?? args.length] = String(value);
             } else if (mapping.type === 'file') {
-              // 写入临时文件
+              // Write to a temp file
               const fileName = `input_${inputName}.txt`;
               const filePath = path.join(tempDir, fileName);
               await fs.writeFile(filePath, String(value));
@@ -59,7 +59,7 @@ export class BashNode implements NodeExecutor {
         break;
     }
 
-    // 处理环境变量映射
+    // Handle environment variable mapping
     if (config.envMapping) {
       for (const [envName, inputName] of Object.entries(config.envMapping)) {
         if (inputs[inputName] !== undefined) {
@@ -68,18 +68,21 @@ export class BashNode implements NodeExecutor {
       }
     }
 
-    // 执行脚本
+    // Execute script
     const interpreter = config.interpreter || 'bash';
     const execaOptions: any = {
       cwd: tempDir,
-      env,
+      env: {
+        ...env,
+        WORKFLOW_HOME: context.workflowDir,
+      },
       timeout: config.timeout ?? 300000,
       all: true,
       reject: false
     };
 
-    // 只有在有 stdin 数据时才传递 input
-    // 这避免了当脚本不读取 stdin 时的 EPIPE 错误
+    // Only pass stdin when input data exists.
+    // This avoids EPIPE when the script does not read stdin.
     if (config.argsPassing.type === 'stdin' && Object.keys(inputs).length > 0) {
       execaOptions.input = stdinData;
     } else if (config.argsPassing.type === 'file') {
@@ -88,7 +91,7 @@ export class BashNode implements NodeExecutor {
 
     const result = await execa(interpreter, [scriptPath, ...args], execaOptions);
 
-    // 检查执行结果
+    // Check execution result
     if (result.exitCode === null || result.exitCode === undefined) {
       throw new Error(
         `Node ${node.id}: script failed to execute: ${String(result.stderr || result.stdout || 'unknown error')}`
@@ -101,7 +104,7 @@ export class BashNode implements NodeExecutor {
       );
     }
 
-    // 解析 JSON 输出
+    // Parse JSON output
     try {
       return JSON.parse(result.stdout);
     } catch (e) {

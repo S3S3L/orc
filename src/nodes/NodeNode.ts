@@ -13,19 +13,19 @@ export class NodeNode implements NodeExecutor {
     const config = node.config as NodeConfig;
     const tempDir = context.tempBaseDir;
 
-    // 解析脚本路径
+    // Resolve script path
     const scriptPath = path.isAbsolute(config.script)
       ? config.script
       : path.join(context.workflowDir, config.script);
 
-    // 构建命令参数
+    // Build command arguments
     const args: string[] = [];
     let stdinData: string | undefined;
 
     const runtime = config.runtime || 'node';
     const argsPassing = config.argsPassing ?? { type: 'stdin' as const };
 
-    // 处理参数传递
+    // Handle argument passing
     switch (argsPassing.type) {
       case 'stdin':
         stdinData = JSON.stringify(inputs);
@@ -48,15 +48,18 @@ export class NodeNode implements NodeExecutor {
         break;
     }
 
-    // 执行脚本
+    // Execute script
     const execaOptions: any = {
       cwd: tempDir,
       timeout: config.timeout ?? 300000,
       all: true,
+      env: {
+        WORKFLOW_HOME: context.workflowDir,
+      },
       reject: false
     };
 
-    // 只有在有 stdin 数据时才传递 input
+    // Only pass stdin when input data exists
     if (argsPassing.type === 'stdin' && Object.keys(inputs).length > 0) {
       execaOptions.input = stdinData;
     } else if (argsPassing.type === 'file') {
@@ -65,7 +68,7 @@ export class NodeNode implements NodeExecutor {
 
     const result = await execa(runtime, [scriptPath, ...args], execaOptions);
 
-    // 检查执行结果
+    // Check execution result
     if (result.exitCode === null || result.exitCode === undefined) {
       throw new Error(
         `Node ${node.id}: script failed to execute: ${String(result.stderr || result.stdout || 'unknown error')}`
@@ -78,7 +81,7 @@ export class NodeNode implements NodeExecutor {
       );
     }
 
-    // 解析 JSON 输出
+    // Parse JSON output
     try {
       return JSON.parse(result.stdout);
     } catch (e) {

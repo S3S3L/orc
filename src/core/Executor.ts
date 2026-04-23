@@ -4,9 +4,19 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowGraph } from './Graph.js';
 import { AuditLogger } from '../runtime/AuditLogger.js';
-import type { ExecutionContext, NodeDefinition, NodeType, EdgeDefinition, RetryConfig, NodeInstance } from '../types.js';
+import type { ExecutionContext, NodeDefinition, NodeType, NodeInstance, ExecutionState } from '../types.js';
+import { BashNode } from '../nodes/BashNode.js';
+import { PythonNode } from '../nodes/PythonNode.js';
+import { NodeNode } from '../nodes/NodeNode.js';
+import { ClaudeCodeNode } from '../nodes/ClaudeCodeNode.js';
+import { LoopNode } from '../nodes/LoopNode.js';
+import { Mutex, E_CANCELED } from 'async-mutex';
 
-// 节点执行器接口
+const DEFAULT_MAX_RETRY_ATTEMPTS = 1;
+const DEFAULT_RETRY_BACKOFF = 'exponential';
+const DEFAULT_RETRY_DELAY_MS = 1000;
+
+// Node executor interface
 export interface NodeExecutor {
   execute(
     node: NodeDefinition,
@@ -15,7 +25,7 @@ export interface NodeExecutor {
   ): Promise<any>;
 }
 
-// 特殊错误类型：节点被跳过
+// Special error type: node was skipped
 export class NodeSkippedError extends Error {
   constructor(nodeId: string) {
     super(`Node ${nodeId}: skipped due to condition`);
@@ -29,55 +39,118 @@ export class Executor {
   private audit: AuditLogger;
   private context: ExecutionContext;
   private executors: Map<string, NodeExecutor> = new Map();
-  private workflowStopped: boolean = false;  // 工作流停止标志
-  private nodes: Map<string, NodeInstance> = new Map();  // 存储节点实例信息（包括执行状态等）
+  private workflowStopped: boolean = false;  // Workflow stop flag
+  private nodes: Map<string, NodeInstance> = new Map();  // Node instance state, including execution status
+  private startInputs: Record<string, any>;
 
   constructor(
     graph: WorkflowGraph,
-    context: ExecutionContext
+    context: ExecutionContext,
+    startInputs: Record<string, any> = {}
   ) {
     this.graph = graph;
     this.context = context;
+    this.startInputs = startInputs;
     this.ajv = new Ajv({ allErrors: true });
     this.audit = new AuditLogger(context.auditDir);
+    this.registerExecutor('bash', new BashNode());
+    this.registerExecutor('python', new PythonNode());
+    this.registerExecutor('node', new NodeNode());
+    this.registerExecutor('claude-code', new ClaudeCodeNode());
+    this.registerExecutor('loop', new LoopNode());
   }
 
   /**
-   * 注册节点执行器
+  * Register a node executor
    */
   registerExecutor(type: NodeType, executor: NodeExecutor): void {
     this.executors.set(type, executor);
   }
 
+  getNodes(): Map<string, NodeInstance> {
+    return this.nodes;
+  }
+
   /**
-   * 执行工作流
+  * Execute the workflow
    */
-  async execute(): Promise<Map<string, any>> {
-    // 初始化目录
-    await this.initializeDirectories();
-
-    this.graph.getAllValideNodes().forEach(nodeId => {
-      const nodeDef = this.graph.getNode(nodeId);
-      if (nodeDef) {
-        const node: NodeInstance = {
-          definition: nodeDef,
-          status: 'pending',
-          depends: new Map()  // 记录依赖状态，key 是上游节点 ID，value 是是否已完成
-        };
-        this.nodes.set(nodeId, node);
-        this.graph.getUpstreamNodes(nodeId).forEach(upstreamId => {
-          node.depends.set(upstreamId, false);  // 初始化依赖状态为未完成
-        });
-      }
-    });
-
-    await Promise.all(this.graph.getRootNodes().map(rootNodeId => this.executeNode(rootNodeId, 'root')));
+  async execute(context: ExecutionContext, state: ExecutionState): Promise<Map<string, any>> {
+    const debugContext = context.debug;
+    if (!debugContext.startNodeId) {
+      await this.newExecute(context, state);
+    } else {
+      await this.startFrom(context, state, debugContext.startNodeId, debugContext.single ?? false);
+    }
 
     return this.context.nodeOutputs;
   }
 
+  private async startFrom(context: ExecutionContext, state: ExecutionState, startNodeId: string, single: boolean): Promise<void> {
+    this.graph.getAllDownstreamNodes(startNodeId).forEach(nodeId => {
+      this.initNodeInstance(nodeId);
+    });
+
+    const node = this.initNodeInstance(startNodeId);
+
+    await Promise.all(this.graph.getDirectUpstreamNodes(startNodeId).map(async upstreamId => {
+      const tempDir = await this.createTempDir(context, upstreamId);
+
+      const auditEntry = this.audit.start(upstreamId, { tempDir });
+      await this.loadFromFile(this.getOutputFilePath(upstreamId), upstreamId, auditEntry)
+        .then(() => {
+          console.log(`[${new Date().toISOString()}] [${context.sessionId}] Preloaded output for upstream node ${upstreamId} before starting from ${startNodeId}`);
+          node.depends.set(upstreamId, true); // Mark dependency as satisfied
+        })
+        .catch(() => {
+          console.log(`[${new Date().toISOString()}] [${context.sessionId}] Upstream node ${upstreamId} output not found, skipping cache load`);
+        }); // Preload upstream outputs so dependency state is correct
+    }));
+
+    console.log(`[${new Date().toISOString()}] [${context.sessionId}] Starting workflow execution from node ${startNodeId}`);
+
+    await this.executeNode(startNodeId, 'root', context, state, single);
+  }
+
+  private initNodeInstance(nodeId: string): NodeInstance {
+    const nodeDef = this.graph.getNode(nodeId);
+    if (nodeDef) {
+      const node: NodeInstance = {
+        definition: nodeDef,
+        status: 'pending',
+        lock: new Mutex(),  // Initialize mutex for this node
+        depends: new Map() // Track dependency state: upstream node ID -> completion flag
+      };
+      this.nodes.set(nodeId, node);
+      this.graph.getDirectUpstreamNodes(nodeId).forEach(upstreamId => {
+        node.depends.set(upstreamId, false);
+      });
+
+      return node;
+    }
+
+    throw new Error(`Node definition not found for nodeId: ${nodeId}`);
+  }
+
   /**
-   * 初始化目录
+  * Execute the workflow from the beginning. If an output file exists, reuse it directly.
+   * @param context 
+   * @param state 
+   */
+  private async newExecute(context: ExecutionContext, state: ExecutionState) {
+    // Initialize directories
+    await this.initializeDirectories();
+
+    this.graph.getAllValidNodes().forEach(nodeId => {
+      this.initNodeInstance(nodeId);
+    });
+
+    console.log(`[${new Date().toISOString()}] [${context.sessionId}] Starting workflow execution with ${this.nodes.size} nodes`);
+
+    await Promise.all(this.graph.getRootNodes().map(rootNodeId => this.executeNode(rootNodeId, 'root', context, state)));
+  }
+
+  /**
+  * Initialize directories
    */
   private async initializeDirectories(): Promise<void> {
     await fs.mkdir(this.context.outputDir, { recursive: true });
@@ -86,79 +159,118 @@ export class Executor {
   }
 
   /**
-   * 执行单个节点（支持重试）
+  * Execute a single node with retry support
    */
-  private async executeNode(nodeId: string, from: string): Promise<void> {
+  private async executeNode(nodeId: string, from: string, context: ExecutionContext, state: ExecutionState, single?: boolean): Promise<void> {
     const node = this.nodes.get(nodeId);
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    node.depends.set(from, true);
-    if ([...node.depends.values()].some(v => v === false)) {
-      // 还有依赖未完成，暂不执行
+    if (node.lock.isLocked()) {
+      console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} is already locked, skipping execution`);
       return;
     }
 
-    node.status = 'running';
+    return node.lock.runExclusive(async () => {
+      if (node.status !== 'pending') {
+        console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} is already ${node.status}, skipping execution`);
+        return;
+      }
 
-    // 为本次执行创建唯一临时目录
-    const tempDir = path.join(this.context.tempBaseDir, `${nodeId}-${uuidv4()}`);
-    await fs.mkdir(tempDir, { recursive: true });
+      node.depends.set(from, true);
 
-    const auditEntry = this.audit.start(nodeId, { tempDir });
+      // Create a unique temp directory for this execution
+      const tempDir = await this.createTempDir(context, nodeId);
 
-    // 获取重试配置
-    const retryConfig = (node.definition.config as any).retry ?? {};
-    const maxAttempts = retryConfig.maxAttempts ?? 3;
-    const backoff = retryConfig.backoff ?? 'exponential';
-    const baseDelay = retryConfig.delayMs ?? 1000;
+      const auditEntry = this.audit.start(nodeId, { tempDir });
 
-    let lastError: Error | null = null;
+      for (const [dependId, completed] of node.depends.entries()) {
+        if (completed) {
+          continue;
+        }
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await this.executeNodeInternal(nodeId, node.definition, auditEntry, tempDir);
-        node.status = 'completed';
-        await Promise.all(this.graph.getDownstreamNodes(nodeId).map(downstreamId => this.executeNode(downstreamId, nodeId))); // 触发下游节点执行
-        return // 成功则返回
-      } catch (error) {
-        // 节点被跳过时不重试，记录跳过状态并返回
-        if (error instanceof NodeSkippedError) {
-          this.audit.skipped(auditEntry);
-          // 在 nodeOutputs 中留下跳过标记，以便下游节点知道源节点被跳过
-          this.context.nodeOutputs.set(nodeId, { __skipped: true });
-          node.status = 'skipped';
+        // try load dependency output from file, if exists, to satisfy dependency and allow execution to proceed
+        try {
+          await this.loadFromFile(this.getOutputFilePath(dependId), dependId, auditEntry)
+          node.depends.set(dependId, true);
+        } catch {
+          console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} is waiting for dependencies: ${[...node.depends.entries()].filter(([_, v]) => !v).map(([k, _]) => k).join(', ')}`);
           return;
         }
+      }
 
-        lastError = error instanceof Error ? error : new Error(String(error));
+      node.status = 'running';
+      console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} started`);
 
-        if (attempt < maxAttempts) {
-          // 计算延迟时间
-          const delay = backoff === 'exponential'
-            ? baseDelay * Math.pow(2, attempt - 1)
-            : baseDelay;
+      // Read retry configuration
+      const retryConfig = (node.definition.config as any).retry ?? {};
+      const maxAttempts = retryConfig.maxAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS;
+      const backoff = retryConfig.backoff ?? DEFAULT_RETRY_BACKOFF;
+      const baseDelay = retryConfig.delayMs ?? DEFAULT_RETRY_DELAY_MS;
 
-          auditEntry.error = lastError.message;
-          auditEntry.retry = { attempt, maxAttempts, delay };
-          this.audit.update(auditEntry, 'retry');
+      let lastError: Error | null = null;
 
-          // 等待后重试
-          await new Promise(resolve => setTimeout(resolve, delay));
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          await this.executeNodeInternal(nodeId, node.definition, auditEntry, tempDir);
+          node.status = 'success';
+          console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} completed successfully`);
+          state.logs.push(`✓ ${nodeId} completed`);
+          if (!single) {
+            await Promise.all(this.graph.getDirectDownstreamNodes(nodeId).map(downstreamId => this.executeNode(downstreamId, nodeId, context, state))).catch(() => { }); // Trigger downstream node execution
+          }
+          return // Return on success
+        } catch (error) {
+          // Do not retry skipped nodes; record skipped state and return
+          if (error instanceof NodeSkippedError) {
+            this.audit.skipped(auditEntry);
+            // Leave a skipped marker in nodeOutputs so downstream nodes know the source was skipped
+            this.context.nodeOutputs.set(nodeId, { __skipped: true });
+            node.status = 'skipped';
+            console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} skipped: ${error.message}`);
+            state.logs.push(`⊘ ${nodeId} skipped`);
+            return;
+          }
+
+          lastError = error instanceof Error ? error : new Error(String(error));
+
+          if (attempt < maxAttempts) {
+            // Calculate retry delay
+            const delay = backoff === 'exponential'
+              ? baseDelay * Math.pow(2, attempt - 1)
+              : baseDelay;
+
+            auditEntry.error = lastError.message;
+            auditEntry.retry = { attempt, maxAttempts, delay };
+            this.audit.update(auditEntry, 'retry');
+
+            console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} failed on attempt ${attempt}: ${lastError.message}. Retrying in ${delay}ms...`);
+            state.logs.push(`✗ ${nodeId} failed on attempt ${attempt}: ${lastError.message}. Retrying in ${delay}ms...`);
+            // Wait, then retry
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
         }
       }
-    }
 
-    // 所有重试失败
-    auditEntry.error = lastError?.message ?? 'Unknown error';
-    this.audit.error(auditEntry);
-    node.status = 'failed';
-    throw lastError;
+      // All retries failed
+      auditEntry.error = lastError?.message ?? 'Unknown error';
+      this.audit.error(auditEntry);
+      node.status = 'failed';
+      console.log(`[${new Date().toISOString()}] [${context.sessionId}] Node ${nodeId} failed after ${maxAttempts} attempts: ${lastError?.message}`);
+      state.logs.push(`✗ ${nodeId}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+      throw lastError;
+    })
+  }
+
+  private async createTempDir(context: ExecutionContext, nodeId: string) {
+    const tempDir = path.join(this.context.tempBaseDir, context.sessionId, `${nodeId}-${uuidv4()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    return tempDir;
   }
 
   /**
-   * 执行单个节点的逻辑（不含重试）
+  * Execute the internal node logic without retry handling
    */
   private async executeNodeInternal(
     nodeId: string,
@@ -166,21 +278,37 @@ export class Executor {
     auditEntry: any,
     tempDir: string
   ): Promise<void> {
+
     try {
-      // 1. 收集并校验输入
+
+      // 0. If an output file already exists, load it and return success directly (idempotent execution)
+      const outputFilePath = this.getOutputFilePath(nodeId);
+      try {
+        await this.loadFromFile(outputFilePath, nodeId, auditEntry);
+        return;
+      } catch {
+        // File does not exist, continue normal execution
+      }
+
+      // 1. Collect and validate inputs
       const inputs = this.collectInputs(node);
       this.validateInputs(node, inputs);
+
+      // Inject start inputs for root nodes
+      if (this.graph.getDirectUpstreamNodes(nodeId).length === 0) {
+        Object.assign(inputs, this.startInputs);
+      }
 
       auditEntry.inputs = inputs;
       this.audit.update(auditEntry, 'validate');
 
-      // 2. 创建节点执行上下文
+      // 2. Create node execution context
       const nodeContext: ExecutionContext = {
         ...this.context,
         tempBaseDir: tempDir
       };
 
-      // 3. 执行节点
+      // 3. Execute node
       const executor = this.executors.get(node.type);
       if (!executor) {
         throw new Error(`No executor registered for node type: ${node.type}`);
@@ -188,16 +316,16 @@ export class Executor {
 
       const rawOutput = await executor.execute(node, inputs, nodeContext);
 
-      // 4. 处理输出
+      // 4. Process output
       const output = await this.processOutput(node, rawOutput, tempDir);
 
-      // 5. 校验输出 Schema
+      // 5. Validate output schema
       this.validateOutput(node, output);
 
-      // 6. 保存输出到持久化目录
-      const outputFilePath = await this.persistOutput(nodeId, output);
+      // 6. Persist output
+      await this.persistOutput(outputFilePath, output);
 
-      // 7. 记录结果
+      // 7. Record results
       this.context.nodeOutputs.set(nodeId, output);
       auditEntry.outputs = output;
       auditEntry.persistedFiles = {
@@ -210,8 +338,19 @@ export class Executor {
     }
   }
 
+  private async loadFromFile(outputFilePath: string, nodeId: string, auditEntry: any) {
+    // Read cached output file if present
+    const existingOutputContent = await fs.readFile(outputFilePath, 'utf-8');
+    const existingOutput = JSON.parse(existingOutputContent);
+    this.context.nodeOutputs.set(nodeId, existingOutput);
+    auditEntry.outputs = existingOutput;
+    auditEntry.persistedFiles = { output: outputFilePath };
+    this.audit.complete(auditEntry);
+    console.log(`[${new Date().toISOString()}] [${this.context.sessionId}] Node ${nodeId} output loaded from cache`);
+  }
+
   /**
-   * 收集节点输入（支持条件边和动态路由）
+  * Collect node inputs, including conditional edges and dynamic routing
    */
   private collectInputs(node: NodeDefinition): Record<string, any> {
     const inputs: Record<string, any> = {};
@@ -219,24 +358,24 @@ export class Executor {
     let hasActiveEdge = false;
 
     for (const edge of edges) {
-      // 检查边条件
+      // Check edge condition
       if (edge.condition) {
         const conditionResult = this.evaluateEdgeCondition(edge, node.id);
 
-        // 处理条件结果
+        // Handle condition result
         if (conditionResult.action === 'stop') {
-          // 停止工作流
+          // Stop the workflow
           this.workflowStopped = true;
           throw new Error(`Workflow stopped at edge ${edge.id}: condition not met`);
         }
 
         if (conditionResult.action === 'skip') {
-          // 跳过这条边
+          // Skip this edge
           continue;
         }
 
         if (conditionResult.action === 'skip-node') {
-          // 跳过整个节点
+          // Skip the entire node
           throw new Error(`Node ${node.id}: skipped due to condition on edge ${edge.id}`);
         }
 
@@ -244,13 +383,13 @@ export class Executor {
           throw new Error(`Node ${node.id}: edge ${edge.id} condition not met`);
         }
 
-        // 处理动态路由 - 检查是否有匹配的分支
+        // Handle dynamic routing and check whether a branch matched
         if (conditionResult.action === 'route' && conditionResult.target) {
-          // 如果当前节点不是路由目标，跳过这条边
+          // If the current node is not the routed target, skip this edge
           if (conditionResult.target.nodeId !== node.id) {
             continue;
           }
-          // 使用路由目标指定的输入名
+          // Use the input name specified by the routed target
           edge.input = conditionResult.target.input;
         }
 
@@ -259,16 +398,16 @@ export class Executor {
         hasActiveEdge = true;
       }
 
-      // 检查源节点输出
+      // Check source node output
       const sourceOutput = this.context.nodeOutputs.get(edge.from);
       if (sourceOutput === undefined) {
-        // 源节点没有被执行（这不应该发生，因为是拓扑排序）
+        // The source node was not executed, which should not happen in topological execution
         throw new Error(
           `Node ${node.id}: input '${edge.input}' depends on unexecuted node ${edge.from}`
         );
       }
 
-      // 如果源节点被跳过，跳过这条边的输入
+      // If the source node was skipped, skip input propagation on this edge
       if (sourceOutput?.__skipped === true) {
         continue;
       }
@@ -276,21 +415,21 @@ export class Executor {
       inputs[edge.input] = sourceOutput;
     }
 
-    // 如果所有入边都被跳过（或没有入边），返回空输入
+    // If all incoming edges were skipped, or there are no active incoming edges, treat as empty input
     if (!hasActiveEdge || Object.keys(inputs).length === 0) {
-      // 检查是否有入边但都被跳过
+      // Check whether incoming edges exist but were all skipped
       if (edges.length > 0) {
-        // 所有入边都被跳过，此节点也应被跳过
+        // All incoming edges were skipped, so this node should be skipped as well
         throw new NodeSkippedError(node.id);
       }
 
-      // 没有入边，检查节点是否有出边（是否是起始节点）
-      // 如果节点没有任何边连接，它是孤立节点，应该被跳过
+      // No incoming edges: check whether the node has any outgoing edges and whether it is isolated
+      // Isolated nodes without any connected edges should be skipped
       const incomingEdges = this.graph['graph'].inEdges(node.id);
       const outgoingEdges = this.graph['graph'].outEdges(node.id);
 
       if (incomingEdges.length === 0 && outgoingEdges.length === 0) {
-        // 孤立节点，没有任何边连接，跳过
+        // Isolated node with no connected edges, skip it
         throw new NodeSkippedError(node.id);
       }
     }
@@ -299,8 +438,8 @@ export class Executor {
   }
 
   /**
-   * 评估边条件（基于 branches 配置）
-   * 返回：{ action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route', target?: { nodeId, input } }
+   * Evaluate edge conditions based on branches configuration.
+   * Returns: { action: 'continue' | 'skip' | 'skip-node' | 'stop' | 'error' | 'route', target?: { nodeId, input } }
    */
   private evaluateEdgeCondition(
     edge: {
@@ -319,7 +458,7 @@ export class Executor {
     const { branches, onNoMatch } = edge.condition;
 
     try {
-      // 评估所有分支，返回第一个匹配的结果
+      // Evaluate all branches and return the first matching result
       for (const branch of branches) {
         const branchFn = new Function('outputs', `return ${branch.expression}`);
         const result = branchFn(Object.fromEntries(this.context.nodeOutputs));
@@ -328,7 +467,7 @@ export class Executor {
         }
       }
 
-      // 没有匹配的分支，根据 onNoMatch 配置处理
+      // No branches matched; handle according to onNoMatch
       switch (onNoMatch) {
         case 'skip':
           return { action: 'skip' };
@@ -339,7 +478,7 @@ export class Executor {
         case 'error':
           return { action: 'error' };
         default:
-          // 默认继续到边的 to 字段指定的目标
+          // By default, continue to the target specified by edge.to
           return { action: 'continue' };
       }
     } catch (e) {
@@ -348,17 +487,17 @@ export class Executor {
   }
 
   /**
-   * 校验输入 Schema
+   * Validate input schema.
    */
   private validateInputs(node: NodeDefinition, inputs: Record<string, any>): void {
-    // 如果输入为空且有入边，说明所有入边都被跳过，跳过此节点
+    // If input is empty but incoming edges exist, all incoming edges were skipped, so skip this node
     if (Object.keys(inputs).length === 0) {
       const edges = this.graph.getIncomingEdges(node.id);
       if (edges.length > 0) {
-        // 抛出特殊错误，表示节点被跳过
+        // Throw a dedicated error to mark the node as skipped
         throw new NodeSkippedError(node.id);
       }
-      return;  // 没有入边的节点（起始节点）允许空输入
+      return;  // Nodes without incoming edges, such as root nodes, may have empty input
     }
 
     for (const [inputName, schema] of Object.entries(node.inputs)) {
@@ -379,7 +518,7 @@ export class Executor {
   }
 
   /**
-   * 处理输出（应用 outputMapping）
+   * Process output by applying outputMapping.
    */
   private async processOutput(
     node: NodeDefinition,
@@ -395,7 +534,7 @@ export class Executor {
 
     let output = rawOutput;
 
-    // 提取字段
+    // Extract a nested field
     if (outputMapping.extractField) {
       const fields = outputMapping.extractField.split('.');
       for (const field of fields) {
@@ -408,7 +547,7 @@ export class Executor {
       }
     }
 
-    // 转换脚本
+    // Apply transform script
     if (outputMapping.transformScript) {
       const transformScript = path.resolve(this.context.workflowDir, outputMapping.transformScript);
       const { execa } = await import('execa');
@@ -416,31 +555,36 @@ export class Executor {
         input: JSON.stringify(output),
         cwd: tempDir
       });
-      output = JSON.parse(result.stdout);
+      try {
+        output = JSON.parse(result.stdout);
+      } catch {
+        throw new Error(`Node ${node.id}: output transform script did not return valid JSON: ${result.stdout}`);
+      }
     }
 
     return output;
   }
 
-  /**
-   * 持久化输出
-   */
-  private async persistOutput(nodeId: string, output: any): Promise<string> {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filePath = path.join(this.context.outputDir, `${nodeId}-${timestamp}.json`);
-    await fs.writeFile(filePath, JSON.stringify(output, null, 2));
-    return filePath;
+  private getOutputFilePath(nodeId: string): string {
+    return path.join(this.context.outputDir, this.context.sessionId, `${nodeId}.json`);
   }
 
   /**
-   * 校验输出 Schema
+   * Persist output.
+   */
+  private async persistOutput(filePath: string, output: any): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true }).catch(() => { }); // Ensure the directory exists
+    return fs.writeFile(filePath, JSON.stringify(output, null, 2));
+  }
+
+  /**
+   * Validate output schema.
    */
   private validateOutput(node: NodeDefinition, output: any): void {
-    const validate = this.ajv.compile(node.output);
+    const validate = this.ajv.compile(node.output.schema);
     if (!validate(output)) {
       throw new Error(
-        `Node ${node.id}: output validation failed: ${this.ajv.errorsText(validate.errors)
-        }`
+        `Node ${node.id}: output validation failed: ${this.ajv.errorsText(validate.errors)}. Output: ${JSON.stringify(output).slice(0, 500)}`
       );
     }
   }

@@ -5,17 +5,10 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowGraph } from './core/Graph.js';
 import { Executor } from './core/Executor.js';
-import { BashNode } from './nodes/BashNode.js';
-import { PythonNode } from './nodes/PythonNode.js';
-import { NodeNode } from './nodes/NodeNode.js';
-import { ClaudeCodeNode } from './nodes/ClaudeCodeNode.js';
 import type { WorkflowDefinition, ExecutionContext, ExecutionState } from './types.js';
+import { GLOBAL_CONTEXT } from './utils/GlobalContext.js';
 
 const program = new Command();
-
-// 全局状态用于 Web UI
-let lastWorkflow: WorkflowDefinition | null = null;
-let executionStates = new Map<string, ExecutionState>();
 
 program
   .name('orc')
@@ -26,33 +19,38 @@ program
   .command('run <workflow>')
   .description('Run a workflow')
   .option('-o, --output <dir>', 'Output directory', './output')
+  .option('-s, --sessionId <id>', 'Session ID', uuidv4())
+  .option('-S, --single', 'Is single node execution (for debugging)')
+  .option('-i, --nodeId <id>', 'Node ID for execution (for debugging)')
   .option('-w, --workspace <dir>', 'Workspace directory for temp files', './workspace')
   .option('--audit <dir>', 'Audit log directory', './audit')
   .option('-v, --verbose', 'Verbose output')
+  .option('-c, --cleanOldFiles', 'Clean old files in output directory before execution', false)
   .action(async (workflowPath: string, options) => {
     try {
-      // 加载工作流
+      // Load workflow
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
       const workflow: WorkflowDefinition = JSON.parse(workflowContent);
 
       const workflowDir = path.dirname(path.resolve(workflowPath));
-      const sessionId = uuidv4();
+      const sessionId = options.sessionId;
 
-      // 设置执行状态（与 serve 共用状态结构）
-      executionStates.set(sessionId, {
+      // Set execution state (shares the same state shape as serve)
+      GLOBAL_CONTEXT.executionStates.set(sessionId, {
         status: 'running',
         logs: [],
         startTime: Date.now(),
         complete: false
       });
 
-      // 执行工作流
-      await runWorkflow(workflow, options, sessionId, workflowDir);
+      // Execute workflow
+      await runWorkflow(workflow, options, sessionId, workflowDir, options.cleanOldFiles || false, options.nodeId, options.single);
 
-      const state = executionStates.get(sessionId);
+      const state = GLOBAL_CONTEXT.executionStates.get(sessionId);
       if (state?.status === 'complete') {
         console.log('\n✓ Workflow completed successfully');
       }
+      process.exit(0);
 
     } catch (error) {
       console.error('✗ Error:', error instanceof Error ? error.message : error);
@@ -68,14 +66,15 @@ program
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
       const workflow: WorkflowDefinition = JSON.parse(workflowContent);
 
-      const graph = new WorkflowGraph(workflow);
+      const workflowDir = path.dirname(path.resolve(workflowPath));
+      const graph = new WorkflowGraph(workflow, workflowDir);
 
       console.log('✓ Workflow is valid');
       console.log(`  Nodes: ${graph.size}`);
       console.log(`  Execution order: ${graph.getExecutionOrder().join(' → ')}`);
 
     } catch (error) {
-      console.error('✗ Validation failed:', error instanceof Error ? error.message : error);
+      console.error('✗ Validation failed:', error instanceof Error ? error.message : error, error instanceof Error ? error.stack : '');
       process.exit(1);
     }
   });
@@ -94,9 +93,11 @@ program
     let workflowDir = process.cwd();
     if (workflowPath) {
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
-      lastWorkflow = JSON.parse(workflowContent);
+      GLOBAL_CONTEXT.lastWorkflow = JSON.parse(workflowContent);
       workflowDir = path.resolve(path.dirname(workflowPath));
     }
+
+    const { lastWorkflow, executionStates, executions } = GLOBAL_CONTEXT;
 
     const webDir = path.join(__dirname, 'web');
     const indexHtml = await fs.readFile(path.join(webDir, 'index.html'), 'utf-8');
@@ -125,6 +126,7 @@ program
         return;
       }
 
+      // /api/run?sessionId=xxx POST
       if (url.pathname === '/api/run' && req.method === 'POST') {
         if (!lastWorkflow) {
           res.statusCode = 404;
@@ -132,34 +134,34 @@ program
           return;
         }
 
-        const sessionId = uuidv4();
+        const sessionId = startWorkflowExecution(
+          lastWorkflow,
+          options,
+          workflowDir,
+          url.searchParams.get('cleanOldFiles') === 'true',  // Control cleanOldFiles via query param
+          url.searchParams.get('sessionId') || undefined
+        );
 
-        // 先设置状态
-        executionStates.set(sessionId, {
-          status: 'running',
-          logs: [`Workflow started: ${sessionId}`],
-          startTime: Date.now(),
-          complete: false  // 初始化为 false
-        });
+        res.end(JSON.stringify({ sessionId }));
+        return;
+      }
 
-        // 异步执行工作流
-        const executionPromise = runWorkflow(lastWorkflow, options, sessionId, workflowDir);
+      if (url.pathname === '/api/node/run' && req.method === 'POST') {
+        if (!lastWorkflow) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'No workflow loaded' }));
+          return;
+        }
 
-        // 后台执行
-        executionPromise.then(() => {
-          const state = executionStates.get(sessionId);
-          if (state) {
-            state.status = 'complete';
-            state.complete = true;  // 添加 complete 字段供前端判断
-          }
-        }).catch((err) => {
-          const state = executionStates.get(sessionId);
-          if (state) {
-            state.status = 'error';
-            state.error = err.message;
-            state.complete = true;  // 失败也标记为完成
-          }
-        });
+        const sessionId = startWorkflowExecution(
+          lastWorkflow,
+          options,
+          workflowDir,
+          url.searchParams.get('cleanOldFiles') === 'true',  // Control cleanOldFiles via query param
+          url.searchParams.get('sessionId') || undefined,
+          url.searchParams.get('nodeId') || undefined,
+          url.searchParams.get('single') === 'true',  // Control single-node execution via query param
+        );
 
         res.end(JSON.stringify({ sessionId }));
         return;
@@ -175,7 +177,10 @@ program
           return;
         }
 
-        res.end(JSON.stringify(state));
+        res.end(JSON.stringify({
+          ...state,
+          nodes: [...executions.get(sessionId)?.getNodes().values() || []].map((node) => node || null)  // Optionally return current node states
+        }));
         return;
       }
 
@@ -192,8 +197,16 @@ program
     });
   });
 
-async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId: string, workflowDir: string) {
-  // 初始化目录
+async function runWorkflow(
+  workflow: WorkflowDefinition,
+  options: any,
+  sessionId: string,
+  workflowDir: string,
+  cleanOldFiles: boolean,
+  startNodeId?: string,
+  single?: boolean
+) {
+  // Initialize directories
   const outputDir = path.resolve(options.output);
   const auditDir = path.resolve(options.audit);
   const tempBaseDir = path.resolve(options.workspace);
@@ -201,25 +214,30 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
   await fs.mkdir(auditDir, { recursive: true });
   await fs.mkdir(tempBaseDir, { recursive: true });
 
-  const graph = new WorkflowGraph(workflow);
+  const { executionStates, executions } = GLOBAL_CONTEXT;
+
+  const graph = new WorkflowGraph(workflow, workflowDir);
 
   const context: ExecutionContext = {
+    workflowDef: workflow,
     workflowDir,
     outputDir,
     auditDir,
     tempBaseDir,
     sessionId,
     nodeOutputs: new Map(),
-    auditLog: []
+    auditLog: [],
+    debug: {
+      startNodeId,
+      single
+    },
+    cleanOldFiles
   };
 
   const executor = new Executor(graph, context);
-  executor.registerExecutor('bash', new BashNode());
-  executor.registerExecutor('python', new PythonNode());
-  executor.registerExecutor('node', new NodeNode());
-  executor.registerExecutor('claude-code', new ClaudeCodeNode());
+  executions.set(sessionId, executor);
 
-  // 获取状态引用并检查是否存在
+  // Get state reference and ensure it exists
   let state = executionStates.get(sessionId);
   if (!state) {
     console.error(`[${new Date().toISOString()}] [${sessionId}] State not found`);
@@ -228,82 +246,14 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
 
   const ts = () => new Date().toISOString();
 
-  // 初始化所有节点状态为 pending
-  for (const node of workflow.nodes) {
-    state.nodes[node.id] = { status: 'pending' };
-  }
-
   console.log(`\n[${ts()}] [${sessionId}] Workflow execution started`);
   console.log(`[${ts()}] [${sessionId}] Workflow: ${workflow.name}`);
   console.log(`[${ts()}] [${sessionId}] Nodes: ${workflow.nodes.length}`);
   console.log(`[${ts()}] [${sessionId}] -------------------`);
 
   try {
-    // 使用 Executor 执行工作流，支持条件分支和实时状态更新
-    const groups = graph.getParallelGroups();
 
-    // 为组内每个节点设置 running 状态
-    for (const nodeId of group) {
-      state.nodes[nodeId] = { status: 'running' };
-      console.log(`[${ts()}] [${sessionId}] → ${nodeId} started`);
-    }
-
-    // 并行执行组内所有节点，每个节点完成后立即更新状态
-    const nodePromises = group.map(async (nodeId) => {
-      const node = graph.getNode(nodeId);
-      if (!node) throw new Error(`Node ${nodeId} not found`);
-
-      const tempDir = path.join(context.tempBaseDir, `${nodeId}-${uuidv4()}`);
-      await fs.mkdir(tempDir, { recursive: true });
-
-      const nodeContext: ExecutionContext = {
-        ...context,
-        tempBaseDir: tempDir
-      };
-
-      // 使用 Executor 的内部方法执行节点（支持条件分支）
-      try {
-        // 调用 executeNode 来执行，它会处理条件评估和跳过逻辑
-        await executor['executeNode'](nodeId, 'root');
-
-        const output = context.nodeOutputs.get(nodeId);
-
-        // 检查节点是否被跳过
-        if (output?.__skipped === true) {
-          state.nodes[nodeId] = { status: 'skipped', output };
-          if (state.logs) {
-            state.logs.push(`⊘ ${nodeId} skipped`);
-          }
-          console.log(`[${ts()}] [${sessionId}] ⊘ ${nodeId} skipped`);
-        } else {
-          // 节点成功执行
-          state.nodes[nodeId] = { status: 'success', output };
-          if (state.logs) {
-            state.logs.push(`✓ ${nodeId} completed`);
-          }
-          console.log(`[${ts()}] [${sessionId}] ✓ ${nodeId} completed`);
-
-          // 持久化输出
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const filePath = path.join(context.outputDir, `${nodeId}-${timestamp}.json`);
-          await fs.mkdir(path.dirname(filePath), { recursive: true });
-          await fs.writeFile(filePath, JSON.stringify(output, null, 2));
-        }
-      } catch (err) {
-        // 节点执行失败
-        state.nodes[nodeId] = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
-        if (state.logs) {
-          state.logs.push(`✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        console.log(`[${ts()}] [${sessionId}] ✗ ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-
-      return { nodeId, output: context.nodeOutputs.get(nodeId) };
-    });
-
-    // 等待组内所有节点完成
-    await Promise.all(nodePromises);
+    await executor.execute(context, state);
 
     state.status = 'complete';
     console.log(`[${ts()}] [${sessionId}] -------------------`);
@@ -313,12 +263,62 @@ async function runWorkflow(workflow: WorkflowDefinition, options: any, sessionId
     if (state.logs) {
       state.logs.push(`✗ Error: ${errorMsg}`);
     }
-    state.status = 'failed';
+    state.status = 'error';
     state.error = errorMsg;
     console.log(`[${ts()}] [${sessionId}] ✗ Error: ${errorMsg}`);
     console.log(`[${ts()}] [${sessionId}] Workflow failed`);
     throw error;
   }
+}
+
+function startWorkflowExecution(
+  workflow: WorkflowDefinition,
+  options: any,
+  workflowDir: string,
+  cleanOldFiles: boolean,
+  requestedSessionId?: string,
+  startNodeId?: string,
+  single?: boolean
+) {
+  const sessionId = requestedSessionId || uuidv4();
+
+  const { executionStates } = GLOBAL_CONTEXT;
+
+  let state = executionStates.get(sessionId);
+
+  if (!state) {
+    state = {
+      status: 'running',
+      logs: [`Workflow started: ${sessionId}`],
+      startTime: Date.now(),
+      complete: false
+    };
+    executionStates.set(sessionId, state);
+  } else {
+    state.status = 'running';
+    state.logs.push(`Workflow resumed: ${sessionId}`);
+    state.startTime = Date.now();
+    state.complete = false;
+  }
+
+  void runWorkflow(workflow, options, sessionId, workflowDir, cleanOldFiles, startNodeId, single)
+    .then(() => {
+      const currentState = executionStates.get(sessionId);
+      if (currentState) {
+        currentState.status = 'complete';
+        currentState.complete = true;
+      }
+    })
+    .catch((err) => {
+      const currentState = executionStates.get(sessionId);
+      if (currentState) {
+        currentState.status = 'error';
+        currentState.error = err instanceof Error ? err.message : String(err);
+        currentState.complete = true;
+      }
+    });
+
+  return sessionId;
 }
 
 program.parse();

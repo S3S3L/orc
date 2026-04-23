@@ -1,13 +1,10 @@
 import type { JSONSchema7 } from 'json-schema';
 
-export const WORKFLOW_SCHEMA: JSONSchema7 = {
+export const GRAPH_SCHEMA: JSONSchema7 = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
-  required: ['version', 'name', 'nodes', 'edges'],
+  required: ['nodes', 'edges'],
   properties: {
-    version: { type: 'string' },
-    name: { type: 'string' },
-    description: { type: 'string' },
     nodes: {
       type: 'array',
       items: { $ref: '#/definitions/node' }
@@ -25,7 +22,7 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
         id: { type: 'string' },
         type: {
           type: 'string',
-          enum: ['bash', 'python', 'node', 'claude-code']
+          enum: ['bash', 'python', 'node', 'claude-code', 'loop']
         },
         name: { type: 'string' },
         description: { type: 'string' },
@@ -87,11 +84,40 @@ export const WORKFLOW_SCHEMA: JSONSchema7 = {
           }
         }
       },
-      // 边必须有 to 或 condition.branches（至少一个）
+      // An edge must define either `to` or `condition.branches` (at least one)
       anyOf: [
         { required: ['to'] },
         { required: ['condition'] }
       ]
     }
+  }
+}
+
+export const WORKFLOW_SCHEMA: JSONSchema7 = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+  required: [...(GRAPH_SCHEMA.required || []), 'version', 'name'],
+  properties: {
+    ...GRAPH_SCHEMA.properties,
+    version: { type: 'string' },
+    name: { type: 'string' },
+    description: { type: 'string' },
+    schemaBaseDir: { type: 'array', items: { type: 'string' } },
+    schemas: {
+      type: 'object',
+      additionalProperties: {
+        $ref: '#/definitions/jsonSchema'
+      }
+    },
+  },
+  definitions: {
+    ...GRAPH_SCHEMA.definitions,
+    jsonSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string' },
+        content: { $ref: 'http://json-schema.org/draft-07/schema#' }
+      }
+    },
   }
 };

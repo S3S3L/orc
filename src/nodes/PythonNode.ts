@@ -13,24 +13,24 @@ export class PythonNode implements NodeExecutor {
     const config = node.config as PythonConfig;
     const tempDir = context.tempBaseDir;
 
-    // 解析脚本路径
+    // Resolve script path
     const scriptPath = path.isAbsolute(config.script)
       ? config.script
       : path.join(context.workflowDir, config.script);
 
-    // 检查依赖
+    // Check dependencies
     if (config.requirements) {
       await this.checkRequirements(config, tempDir);
     }
 
-    // 构建命令参数
+    // Build command arguments
     const args: string[] = [];
     let stdinData: string | undefined;
 
     const interpreter = config.interpreter || 'python3';
     const argsPassing = config.argsPassing ?? { type: 'stdin' as const };
 
-    // 处理参数传递
+    // Handle argument passing
     switch (argsPassing.type) {
       case 'stdin':
         stdinData = JSON.stringify(inputs);
@@ -61,16 +61,19 @@ export class PythonNode implements NodeExecutor {
         break;
     }
 
-    // 执行脚本
+    // Execute script
     const result = await execa(interpreter, [scriptPath, ...args], {
       cwd: tempDir,
       input: stdinData,
       timeout: config.timeout ?? 300000,
       all: true,
+      env: {
+        WORKFLOW_HOME: context.workflowDir,
+      },
       reject: false
     });
 
-    // 检查执行结果
+    // Check execution result
     if (result.exitCode === null || result.exitCode === undefined) {
       throw new Error(
         `Node ${node.id}: script failed to execute: ${String(result.stderr || result.stdout || 'unknown error')}`
@@ -83,7 +86,7 @@ export class PythonNode implements NodeExecutor {
       );
     }
 
-    // 解析 JSON 输出
+    // Parse JSON output
     try {
       return JSON.parse(result.stdout);
     } catch (e) {
@@ -100,7 +103,7 @@ export class PythonNode implements NodeExecutor {
     const { file, packages } = config.requirements!;
 
     if (file) {
-      // 从 requirements.txt 读取
+      // Read from requirements.txt
       const content = await fs.readFile(file, 'utf-8');
       const required = content.split('\n').filter(line => line.trim());
       await this.verifyPackages(required);
@@ -110,7 +113,7 @@ export class PythonNode implements NodeExecutor {
   }
 
   private async verifyPackages(packages: string[]): Promise<void> {
-    // 可选：检查包是否安装
-    // 这里可以添加 pip show 检查逻辑
+    // Optional: verify whether packages are installed
+    // pip show checks can be added here later
   }
 }

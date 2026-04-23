@@ -1,28 +1,21 @@
+import { Mutex } from 'async-mutex';
 import { JSONSchema7 } from 'json-schema';
 
-// ============ 节点类型枚举 ============
-export type NodeType = 'bash' | 'python' | 'node' | 'claude-code';
+// ============ Node Type Enum ============
+export type NodeType = 'bash' | 'python' | 'node' | 'claude-code' | 'loop';
 export type Phase = 'start' | 'validate' | 'execute' | 'complete' | 'error' | 'retry' | 'skipped';
-export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type NodeStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
-// ============ 基础配置接口 ============
+// ============ Base Config Interfaces ============
 export interface RetryConfig {
-  maxAttempts?: number;      // 默认 3 次
-  backoff?: 'fixed' | 'exponential';  // 重试策略
-  delayMs?: number;          // 基础延迟 (ms)
-}
-
-export interface ConditionConfig {
-  expression: string;        // 条件表达式
-  onSkip?: 'pass-empty' | 'error';  // 跳过时的行为
+  maxAttempts?: number;      // Defaults to 3 attempts
+  backoff?: 'fixed' | 'exponential';  // Retry strategy
+  delayMs?: number;          // Base delay (ms)
 }
 
 export interface BaseNodeConfig {
-  inputMapping?: InputMappingConfig;
-  outputMapping?: OutputMappingConfig;
   timeout?: number;
   retry?: RetryConfig;
-  condition?: ConditionConfig;
 }
 
 export interface InputMappingConfig {
@@ -35,7 +28,7 @@ export interface OutputMappingConfig {
   transformScript?: string;
 }
 
-// ============ Bash 节点配置 ============
+// ============ Bash Node Config ============
 export interface BashConfig extends BaseNodeConfig {
   script: string;
   interpreter?: string;
@@ -51,7 +44,7 @@ export interface BashConfig extends BaseNodeConfig {
   envMapping?: Record<string, string>;
 }
 
-// ============ Python 节点配置 ============
+// ============ Python Node Config ============
 export interface PythonConfig extends BaseNodeConfig {
   script: string;
   interpreter?: string;
@@ -69,7 +62,7 @@ export interface PythonConfig extends BaseNodeConfig {
   };
 }
 
-// ============ Node 节点配置 ============
+// ============ Node Runtime Config ============
 export interface NodeConfig extends BaseNodeConfig {
   script: string;
   runtime?: string;
@@ -83,7 +76,7 @@ export interface NodeConfig extends BaseNodeConfig {
   };
 }
 
-// ============ Claude Code 相关类型 ============
+// ============ Claude Code Types ============
 export interface AuditConfig {
   enabled: boolean;
   logStdout: boolean;
@@ -98,9 +91,15 @@ export interface ConfigTemplate {
 }
 
 export interface InputMapping {
-  target: 'markdown' | 'prompt' | 'file';
+  target: 'markdown';
   section?: string;
   filePath?: string;
+}
+
+export interface ClaudeCodeResumeConfig {
+  maxAttempts: number;
+  prompt?: string;
+  validator: string; // Validator script. Parameter: output. Returns true/false
 }
 
 export interface ClaudeCodeConfig extends BaseNodeConfig {
@@ -110,86 +109,108 @@ export interface ClaudeCodeConfig extends BaseNodeConfig {
   };
   inputMapping?: Record<string, InputMapping>;
   execution: {
-    workDir: string;
-    outputFile: string;
     audit?: AuditConfig;
   };
+  resume?: ClaudeCodeResumeConfig;
   capabilities: {
     tools?: {
       allowed?: string[];
       denied?: string[];
     };
-    skills?: {
-      activate?: string[];
-      available?: string[];
-    };
+    enableSkills?: boolean;
     mcp?: {
       enabled?: string[];
       config?: string;
     };
   };
-  configTemplates?: ConfigTemplate[];
 }
 
-// ============ 联合配置类型 ============
-export type NodeConfigUnion = BashConfig | PythonConfig | NodeConfig | ClaudeCodeConfig;
+// ============ Loop Types ============
 
-// ============ 节点定义 ============
+export interface LoopConfig extends BaseNodeConfig {
+  subGraph: GraphDefinition;
+  maxAttempts: number;
+  validator: string; // Validator script. Parameter: outputs. e.g.: outputs[$nodeId].status === "success". Returns true/false
+}
+
+// ============ Union Config Types ============
+export type NodeConfigUnion = BashConfig | PythonConfig | NodeConfig | ClaudeCodeConfig | LoopConfig;
+
+// ============ Node Definitions ============
 export interface NodeDefinition {
   id: string;
   type: NodeType;
   name: string;
   description?: string;
   inputs: Record<string, JSONSchema7>;
-  output: JSONSchema7;
+  output: { ref: string; schema: JSONSchema7 };
   config: NodeConfigUnion;
 }
 
 export interface NodeInstance {
   definition: NodeDefinition;
   status: NodeStatus;
-  depends: Map<string, boolean>;  // 依赖的节点的完成状态，节点ID映射到布尔值
+  lock: Mutex;  // For synchronizing execution of this node
+  depends: Map<string, boolean>;  // Completion state of dependent nodes: node ID -> boolean
 }
 
-// ============ 边定义 ============
+// ============ Edge Definitions ============
 export interface EdgeDefinition {
   id: string;
   from: { nodeId: string };
-  to: { nodeId: string; input: string };  // 默认目标（当没有 condition 或 branches 无匹配时使用）
+  to: { nodeId: string; input: string };  // Default target when there is no condition or no branch match
   transform?: (data: any) => any;
   condition?: {
     /**
-     * 分支列表，按顺序评估，第一个匹配的分支生效
-     * 如果为空或 undefined，边无条件执行到 to 指定的目标
+    * Branch list evaluated in order. The first matching branch wins.
+    * If empty or undefined, the edge executes unconditionally to the `to` target.
      */
     branches: Array<{
-      expression: string;     // 分支条件表达式
-      to: { nodeId: string; input: string };  // 条件满足时的路由目标
+      expression: string;     // Branch condition expression
+      to: { nodeId: string; input: string };  // Routing target when the condition matches
     }>;
     /**
-     * 没有分支匹配时的行为（可选）
-     * - 'skip': 跳过这条边
-     * - 'skip-node': 跳过目标节点
-     * - 'stop': 停止工作流执行
-     * - 'error': 抛出错误
-     * - undefined: 使用边的 to 字段作为默认目标
+    * Behavior when no branch matches (optional)
+    * - 'skip': skip this edge
+    * - 'skip-node': skip the target node
+    * - 'stop': stop workflow execution
+    * - 'error': throw an error
+    * - undefined: use the edge `to` field as the default target
      */
     onNoMatch?: 'skip' | 'skip-node' | 'stop' | 'error';
   };
 }
 
-// ============ 工作流定义 ============
-export interface WorkflowDefinition {
+// ============ Workflow Definitions ============
+export interface WorkflowDefinition extends GraphDefinition {
   version: string;
   name: string;
   description?: string;
-  nodes: NodeDefinition[];
-  edges: EdgeDefinition[];
   entryPoints?: string[];
 }
 
-// ============ 执行上下文 ============
+// =========== JSON Schema Definition ============
+
+export interface SchemaDefinition {
+  schemaBaseDir?: string[];
+  schemas: Record<string, JsonSchema>;
+}
+
+export interface JsonSchema {
+  file?: string;
+  content?: JSONSchema7;
+}
+
+// =========== Graph Definition ============
+
+export interface GraphDefinition extends SchemaDefinition {
+  nodes: NodeDefinition[];
+  edges: EdgeDefinition[];
+}
+
+// ============ Execution Context ============
 export interface ExecutionContext {
+  workflowDef: WorkflowDefinition;
   workflowDir: string;
   outputDir: string;
   auditDir: string;
@@ -197,17 +218,25 @@ export interface ExecutionContext {
   sessionId: string;
   nodeOutputs: Map<string, any>;
   auditLog: AuditEntry[];
+  debug: NodeDebuggingContext;
+  cleanOldFiles: boolean;
 }
 
-// ============ 执行状态 ============
+export interface NodeDebuggingContext {
+  startNodeId?: string;
+  single?: boolean;
+}
+
+// ============ Execution State ============
 export interface ExecutionState {
   status: 'running' | 'complete' | 'error';
   logs: string[];
   startTime: number;
   complete: boolean;
+  error?: string;
 }
 
-// ============ 审计日志条目 ============
+// ============ Audit Entries ============
 export interface AuditEntry {
   id: string;
   timestamp: string;
