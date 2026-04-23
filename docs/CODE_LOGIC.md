@@ -46,14 +46,18 @@ ORC (Orchestration Runner) 是一个 JSON 驱动的任务编排工具，支持 D
 ┌───────────▼──────────────────────────────────────────────────────┐
 │                      Node Layer                                   │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  │
-│  │ BashNode   │  │ PythonNode │  │ NodeNode   │  │ ClaudeCode │  │
+│  │ BashNode   │  │ PythonNode │  │ NodeNode   │  │ LoopNode   │  │
 │  └────────────┘  └────────────┘  └────────────┘  └────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │  ClaudeCodeNode (含 ConversationExporter)                │    │
+│  └──────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
 │                      Runtime Layer                                │
 │  ┌────────────────────┐  ┌────────────────────────────────────┐  │
-│  │ AuditLogger        │  │ types.ts / schema.ts               │  │
+│  │ AuditLogger        │  │ GlobalContext (Web UI 状态)        │  │
+│  │ types.ts / schema.ts │  │ ClaudeExporterWorker (后台线程)   │  │
 │  └────────────────────┘  └────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -187,46 +191,49 @@ ORC (Orchestration Runner) 是一个 JSON 驱动的任务编排工具，支持 D
   ▼
 ┌─────────────────────────────────────┐
 │ 1. 可选：加载工作流 JSON             │
-│    - 如果提供路径则加载              │
-│    - 存储到 lastWorkflow             │
+│    - 存储到 GLOBAL_CONTEXT           │
+│      .lastWorkflow                   │
 └─────────────────────────────────────┘
   │
   ▼
 ┌─────────────────────────────────────┐
 │ 2. 启动 HTTP 服务器                   │
-│    - 监听指定端口                    │
-│    - 提供静态 HTML 资源               │
+│    - 原生 Node.js http               │
+│    - 监听指定端口                     │
+│    - 提供静态 HTML (src/web/)        │
 └─────────────────────────────────────┘
   │
   │ HTTP 请求处理
   ├───────────────────────────────────────────────────┐
   │                                                   │
-  │ GET  /api/workflow                               │
+  │ GET  / 或 /index.html                            │
+  │   → 返回 index.html (Cytoscape UI)                │
+  │                                                   │
+  │ GET  /api/workflow                                │
   │   → 返回 lastWorkflow JSON                        │
   │                                                   │
-  │ POST /api/run                                    │
-  │   ├─ 生成 sessionId                              │
-  │   ├─ 创建 execution state                        │
-  │   └─ 后台执行 runWorkflow()                      │
-  │       │                                           │
-  │       ▼                                           │
-  │   ┌───────────────────────────────────┐          │
-  │   │ 构建 Graph + Executor              │          │
-  │   └───────────────────────────────────┘          │
-  │       │                                           │
-  │       ▼                                           │
-  │   ┌───────────────────────────────────┐          │
-  │   │ 按并行组执行                       │          │
-  │   │  - 更新 state.nodes[nodeId]       │          │
-  │   │  - pending → running → success    │          │
-  │   │                    ↓ failed       │          │
-  │   │                    ↓ skipped      │          │
-  │   └───────────────────────────────────┘          │
+  │ POST /api/run?cleanOldFiles=&sessionId=           │
+  │   ├─ 生成 sessionId                               │
+  │   ├─ 创建 execution state                         │
+  │   └─ 后台执行 runWorkflow() (异步)                │
   │                                                   │
-  │ GET  /api/status/{sessionId}                     │
-  │   → 返回执行状态（含 nodes 状态 + logs）           │
+  │ POST /api/node/run?nodeId=&single=&sessionId=     │
+  │   └─ 单节点调试执行                               │
+  │                                                   │
+  │ GET  /api/status/{sessionId}                      │
+  │   → 返回 { status, logs, nodes }                  │
   │                                                   │
   └───────────────────────────────────────────────────┘
+```
+
+**GlobalContext 全局状态：**
+```typescript
+class GlobalContext {
+  lastWorkflow: WorkflowDefinition | null = null;
+  executionStates = new Map<string, ExecutionState>();
+  executions = new Map<string, Executor>();
+}
+export const GLOBAL_CONTEXT = new GlobalContext();
 ```
 
 ---
@@ -282,16 +289,18 @@ program.command('run <workflow>').action(async (workflowPath, options) => {
 
 | 方法 | 功能 |
 |------|------|
-| `build()` | 构建图，添加节点和边 |
-| `validateWorkflowSchema()` | 校验工作流 JSON Schema |
-| `validateDAG()` | 校验无环 |
+| `build()` | 构建图，添加节点和边（to + branches） |
+| `validateGraphSchema()` | 校验工作流 JSON Schema |
+| `validateDAG()` | 校验无环（topologicalSort） |
 | `validateSchemaConnections()` | 校验输入覆盖 |
 | `getExecutionOrder()` | 返回拓扑排序 |
-| `getRootNodes()` | 返回所有入度为 0 的节点（起始节点） |
-| `getUpstreamNodes(nodeId)` | 返回节点的所有上游节点（直接前驱） |
-| `getDownstreamNodes(nodeId)` | 返回节点的所有下游节点（直接后继） |
-| `getIncomingEdges()` | 返回节点入边 |
-| `getParallelGroups()` | 返回并行执行组（已废弃，仅供兼容） |
+| `getRootNodes()` | 返回入度为 0 且出度 > 0 的节点 |
+| `getDirectUpstreamNodes()` | 返回直接前驱节点 |
+| `getDirectDownstreamNodes()` | 返回直接后继节点 |
+| `getAllDownstreamNodes()` | 返回所有下游节点（BFS） |
+| `getAllValidNodes()` | 返回所有非孤立节点 |
+| `getParallelGroups()` | 按层级返回并行组 |
+| `getIncomingEdges()` | 返回节点入边（含条件信息） |
 
 **边处理逻辑：**
 ```typescript
@@ -312,47 +321,72 @@ if (edge.condition?.branches) {
 
 ### Executor (Executor.ts)
 
-**职责：** 节点调度、条件评估、重试执行（事件驱动模型）
+**职责：** 节点调度、条件评估、重试执行（事件驱动 + 下游传播模型）
+
+**关键字段：**
+```typescript
+private nodes: Map<string, NodeInstance>;      // 运行时节点状态
+private workflowStopped: boolean;               // 工作流停止标志
+private executors: Map<string, NodeExecutor>;   // 节点执行器注册表
+```
 
 **关键流程：**
 
 1. **事件驱动执行**
 ```typescript
-// 1. 获取所有 root 节点（入度为 0）并并行执行
-const rootNodes = this.graph.getRootNodes();
-const rootPromises = rootNodes.map(nodeId => this.executeNodeWithDownstreamTrigger(nodeId));
-await Promise.all(rootPromises);
-
-// 2. 节点完成后触发下游
-async executeNodeWithDownstreamTrigger(nodeId: string) {
-  await this.executeNode(nodeId);  // 执行节点（含重试）
-  this.completedNodes.add(nodeId);  // 标记完成
-  
-  // 通知所有下游节点检查
-  const downstreamNodes = this.graph.getDownstreamNodes(nodeId);
-  for (const downstreamId of downstreamNodes) {
-    this.checkAndTriggerNode(downstreamId);
-  }
+// Executor.execute() - 两种模式
+if (!debugContext.startNodeId) {
+  await this.newExecute(context, state);   // 全量执行
+} else {
+  await this.startFrom(context, state, nodeId, single);  // 调试恢复
 }
 
-// 3. 下游节点检查并触发
-checkAndTriggerNode(nodeId: string) {
-  // 已执行或已安排的跳过
-  if (completedNodes.has(nodeId) || pendingNodes.has(nodeId)) return;
-  
-  // 检查所有上游是否完成
-  const upstreamNodes = this.graph.getUpstreamNodes(nodeId);
-  const allUpstreamCompleted = upstreamNodes.every(id => completedNodes.has(id));
-  
-  if (allUpstreamCompleted) {
-    // 所有上游完成，开始执行
-    this.executeNodeWithDownstreamTrigger(nodeId);
+// newExecute: 初始化所有 NodeInstance，并行启动根节点
+this.graph.getAllValidNodes().forEach(id => this.initNodeInstance(id));
+await Promise.all(this.graph.getRootNodes().map(id =>
+  this.executeNode(id, 'root', context, state)
+));
+
+// executeNode: 每节点独立 Mutex，成功后触发下游
+node.lock.runExclusive(async () => {
+  // 1. 等待所有上游完成（从文件加载缓存输出）
+  for (const [dependId, completed] of node.depends.entries()) {
+    if (!completed) await this.loadFromFile(this.getOutputFilePath(dependId), ...);
   }
-  // 否则继续等待
-}
+  // 2. 执行节点
+  await this.executeNodeInternal(...);
+  node.status = 'success';
+  // 3. 触发下游
+  if (!single) {
+    await Promise.all(this.graph.getDirectDownstreamNodes(nodeId).map(id =>
+      this.executeNode(id, nodeId, context, state)
+    )).catch(() => {});
+  }
+});
 ```
 
-2. **节点重试循环**
+2. **幂等执行（输出缓存）**
+```typescript
+// executeNodeInternal 第一步：检查输出文件是否存在
+const outputFilePath = this.getOutputFilePath(nodeId);
+try {
+  await this.loadFromFile(outputFilePath, nodeId, auditEntry);
+  return;  // 缓存命中，直接返回成功
+} catch { /* 文件不存在，继续正常执行 */ }
+```
+
+3. **调试恢复模式（startFrom）**
+```typescript
+// 从指定节点开始执行，预加载上游缓存
+this.graph.getAllDownstreamNodes(startNodeId).forEach(id => this.initNodeInstance(id));
+await Promise.all(this.graph.getDirectUpstreamNodes(startNodeId).map(async upstreamId => {
+  await this.loadFromFile(this.getOutputFilePath(upstreamId), upstreamId, auditEntry)
+    .then(() => node.depends.set(upstreamId, true));  // 标记依赖为已满足
+}));
+await this.executeNode(startNodeId, 'root', context, state);
+```
+
+4. **节点重试循环**
 ```typescript
 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
   try {
@@ -369,31 +403,60 @@ for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 
 3. **条件边评估**
 ```typescript
-evaluateEdgeCondition(edge, nodeId) {
-  // 1. 遍历 branches 评估表达式
-  for (const branch of branches) {
-    const result = Function('outputs', `return ${branch.expression}`)(outputs);
-    if (result) {
-      return { action: 'route', target: branch.to };
+// collectInputs(): 遍历入边，评估条件
+for (const edge of edges) {
+  if (edge.condition) {
+    const result = this.evaluateEdgeCondition(edge, node.id);
+    if (result.action === 'stop') { this.workflowStopped = true; throw... }
+    if (result.action === 'skip') continue;  // 跳过此边
+    if (result.action === 'skip-node') throw new Error(...)
+    if (result.action === 'route') {
+      if (result.target.nodeId !== node.id) continue;  // 当前节点不在路由目标中
     }
   }
-  
-  // 2. 无匹配时使用 onNoMatch 配置
-  switch (onNoMatch) {
-    case 'skip': return { action: 'skip' };
-    case 'skip-node': return { action: 'skip-node' };
-    case 'stop': return { action: 'stop' };
-    case 'error': return { action: 'error' };
-    default: return { action: 'continue' };
-  }
+  // 收集上游输出
+  inputs[edge.input] = this.context.nodeOutputs.get(edge.from);
+}
+// 所有边都被跳过 → 跳过节点
+if (!hasActiveEdge || Object.keys(inputs).length === 0) {
+  throw new NodeSkippedError(node.id);
 }
 ```
 
-4. **孤立节点检测**
+5. **孤立节点和跳过处理**
 ```typescript
-// 节点无任何边连接时跳过
+// collectInputs(): 孤立节点检测
 if (incomingEdges.length === 0 && outgoingEdges.length === 0) {
-  throw new NodeSkippedError(node.id);
+  throw new NodeSkippedError(node.id);  // 完全无连接的孤立节点
+}
+
+// executeNode(): 跳过节点处理
+if (error instanceof NodeSkippedError) {
+  this.audit.skipped(auditEntry);
+  this.context.nodeOutputs.set(nodeId, { __skipped: true });  // 标记跳过
+  node.status = 'skipped';
+  return;  // 不重试
+}
+
+// collectInputs(): 上游被跳过
+if (sourceOutput?.__skipped === true) {
+  continue;  // 跳过此边的输入传播
+}
+```
+
+6. **节点重试循环**
+```typescript
+for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  try {
+    await this.executeNodeInternal(...);
+    return; // 成功
+  } catch (error) {
+    if (error instanceof NodeSkippedError) { /* 不重试，直接跳过 */ }
+    if (attempt < maxAttempts) {
+      // 指数退避：delay = baseDelay * 2^(attempt-1)
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
 }
 ```
 
@@ -412,10 +475,11 @@ interface NodeExecutor {
 ```
 
 **已实现执行器：**
-- `BashNode` - 执行 Bash 脚本
-- `PythonNode` - 执行 Python 脚本
-- `NodeNode` - 执行 Node.js 脚本
-- `ClaudeCodeNode` - 调用 Claude Code AI
+- `BashNode` - 执行 Bash 脚本（stdin/args/file 传参、envMapping、Handlebars 模板）
+- `PythonNode` - 执行 Python 脚本（支持 requirements）
+- `NodeNode` - 执行 Node.js 脚本（支持 runtime 切换）
+- `ClaudeCodeNode` - 调用 Claude Code AI（prompt 模板、JSON Schema 约束、resume 重试）
+- `LoopNode` - 循环子图执行（subGraph + validator 动态校验）
 
 ---
 
@@ -427,7 +491,8 @@ interface NodeExecutor {
   version: string;
   name: string;
   description?: string;
-  $defs?: Record<string, JSONSchema7>;  // Schema 定义（可选）
+  schemaBaseDir?: string[];   // 自动加载 schema 文件目录
+  schemas?: Record<string, { file?: string; content?: JSONSchema7 }>;  // Schema 定义
   nodes: NodeDefinition[];
   edges: EdgeDefinition[];
 }
@@ -437,10 +502,11 @@ interface NodeExecutor {
 ```typescript
 {
   id: string;
-  type: 'bash' | 'python' | 'node' | 'claude-code';
+  type: 'bash' | 'python' | 'node' | 'claude-code' | 'loop';
   name: string;
-  inputs: Record<string, JSONSchema7>;  // 支持 $ref 引用
-  output: JSONSchema7;
+  description?: string;
+  inputs: Record<string, JSONSchema7>;
+  output: { ref: string; schema: JSONSchema7 };
   config: NodeConfigUnion;
 }
 ```
@@ -463,42 +529,106 @@ interface NodeExecutor {
 
 ---
 
-## Schema $ref 引用支持
+## LoopNode 循环子图
 
-**工作流内部引用：**
+**LoopNode 将父图 + subGraph 合并构建新 WorkflowGraph，循环执行直到 validator 通过：**
+```typescript
+// 合并父图节点和 subGraph 节点
+const graph = new WorkflowGraph({
+  nodes: [...workflowDef.nodes, ...config.subGraph.nodes],
+  edges: config.subGraph.edges,
+  schemas: { ...workflowDef.schemas, ...config.subGraph.schemas }
+}, context.workflowDir);
+
+// 每次迭代使用独立目录
+for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const subContext = {
+    ...context,
+    outputDir: `${outputDir}/${nodeId}-${attempt}`,
+    auditDir: `${auditDir}/${nodeId}-${attempt}`,
+    tempBaseDir: `${tempBaseDir}/${nodeId}-${attempt}`,
+    nodeOutputs: new Map()
+  };
+  const executor = new Executor(graph, subContext, {
+    ...inputs,
+    __lastIterationOutput: lastOutputs  // 传递上次迭代输出
+  });
+  await executor.execute(subContext, subExecutionState);
+
+  const validator = new Function('outputs', `return ${config.validator}`);
+  if (validator(Object.fromEntries(subContext.nodeOutputs))) return lastOutputs;
+}
+throw new Error(`All ${maxAttempts} attempts failed validation`);
+```
+
+---
+
+## Claude 对话导出
+
+### ConversationExporter
+- 解析 `.jsonl` 格式的 Claude 对话记录
+- 支持 HTML/Markdown 两种导出格式
+- 自动检测并内联 subagent 执行详情（通过 agentId 或时间戳匹配）
+- 长文本可折叠，Markdown 自动渲染
+
+### ClaudeExporterWorker
+- 后台 Worker 线程，每 5 秒轮询
+- 监听主线程 add/remove 任务消息
+- 自动导出 `~/.claude/projects/` 下的对话记录
+- 支持 cleanOldFiles 清理过期 HTML
+
+---
+
+## GlobalContext 全局状态
+
+```typescript
+class GlobalContext {
+  lastWorkflow: WorkflowDefinition | null = null;   // Web UI 当前工作流
+  executionStates = new Map<string, ExecutionState>();  // sessionId → 执行状态
+  executions = new Map<string, Executor>();              // sessionId → Executor
+}
+export const GLOBAL_CONTEXT = new GlobalContext();
+```
+
+- CLI `run` 命令和 `serve` 命令共享同一个 GlobalContext 实例
+- `serve` 命令的 HTTP handler 通过 GlobalContext 访问工作流和状态
+- Web UI 轮询 `/api/status/:sessionId` 获取实时状态
+
+---
+
+## Schema 文件加载
+
+**schemaBaseDir 自动加载：**
 ```json
 {
-  "$defs": {
-    "status-mode": {
-      "type": "object",
-      "properties": {
-        "status": { "type": "string" },
-        "mode": { "type": "string" }
-      }
-    }
-  },
+  "schemaBaseDir": ["./schemas/complex"],
   "nodes": [{
-    "id": "start",
-    "output": { "$ref": "workflow-schema#/$defs/status-mode" }
+    "id": "init",
+    "output": { "ref": "init_out" }
   }]
 }
 ```
+`prepareSchema()` 自动扫描 schemaBaseDir 下所有 `.json` 文件，按文件名注册到 schemas。
+节点 output.ref 和 inputs 通过 key 查找对应 schema content。
 
-**外部文件引用：**
+**内联 Schema：**
 ```json
 {
-  "nodes": [{
-    "id": "process",
-    "inputs": {
-      "config": { "$ref": "schemas/types/config.json" }
+  "schemas": {
+    "my_output": {
+      "file": "schemas/my_output.json"   // 从文件加载
+    },
+    "my_input": {
+      "content": { "type": "object", ... }  // 内联定义
     }
-  }]
+  }
 }
 ```
 
 **实现位置：**
-- `Graph.registerSchemas()` - 注册内部$defs 和外部 schema 文件
-- `Executor` 复用 `Graph` 的 Ajv 实例进行验证
+- `Graph.prepareSchema()` - 扫描 schemaBaseDir + 解析 schema.file
+- `Graph.build()` - 将 schema 注入节点 output.schema 和 inputs
+- `Executor` 使用 Ajv 校验输入/输出
 
 ---
 
@@ -538,27 +668,34 @@ sequenceDiagram
 orc/
 ├── src/
 │   ├── cli.ts              # CLI 入口（run/validate/serve）
-│   ├── types.ts            # 类型定义
-│   ├── schema.ts           # JSON Schema 定义
+│   ├── types.ts            # 类型定义（含 NodeType = bash|python|node|claude-code|loop）
+│   ├── schema.ts           # JSON Schema（GRAPH_SCHEMA / WORKFLOW_SCHEMA）
 │   ├── core/
-│   │   ├── Graph.ts        # DAG 构建与校验
-│   │   └── Executor.ts     # 节点调度与执行
+│   │   ├── Graph.ts        # WorkflowGraph - DAG 构建与校验
+│   │   └── Executor.ts     # Executor - 节点调度、条件评估、重试
 │   ├── nodes/
-│   │   ├── BashNode.ts     # Bash 执行器
-│   │   ├── PythonNode.ts   # Python 执行器
-│   │   ├── NodeNode.ts     # Node.js 执行器
-│   │   └── ClaudeCodeNode.ts
+│   │   ├── BashNode.ts         # Bash 执行器
+│   │   ├── PythonNode.ts       # Python 执行器
+│   │   ├── NodeNode.ts         # Node.js 执行器
+│   │   ├── ClaudeCodeNode.ts   # Claude Code AI 节点
+│   │   └── LoopNode.ts         # 循环子图节点
 │   ├── runtime/
 │   │   └── AuditLogger.ts  # 审计日志
+│   ├── tools/
+│   │   ├── ConversationExporter.ts   # 对话 HTML 导出
+│   │   └── ClaudeExporterWorker.ts   # 后台 Worker 线程
+│   ├── utils/
+│   │   └── GlobalContext.ts  # Web UI 全局状态管理
 │   └── web/
-│       └── index.html      # Web UI
-├── schemas/types/          # 可复用 Schema 定义
-│   ├── status-mode.json
-│   ├── result.json
-│   └── ...
+│       └── index.html      # Web UI (Cytoscape.js)
 ├── examples/               # 示例工作流
-└── docs/
-    └── CODE_LOGIC.md       # 本文档
+├── docs/
+│   ├── CODE_LOGIC.md       # 本文档
+│   ├── technical-design.md # 技术设计
+│   └── iteration-plan.md   # 迭代计划
+├── audit/                  # 审计日志输出
+├── output/                 # 节点输出缓存
+└── workspace/              # 临时工作目录
 ```
 
 ---
@@ -566,4 +703,4 @@ orc/
 ## 版本
 
 - 当前版本：v0.6.0
-- 主要特性：条件分支、并行执行、Schema $ref 引用
+- 主要特性：5 种节点类型、并行执行、条件分支、重试、幂等执行、Web UI、对话导出

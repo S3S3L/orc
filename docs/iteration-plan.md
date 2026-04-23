@@ -7,115 +7,76 @@ ORC (Orchestration Runner) - JSON 驱动的任务编排工具
 ### 核心特性
 - DAG 工作流定义和执行
 - JSON Schema 输入输出校验
-- 支持 bash/python/node/claude-code 节点
-- 统一审计日志和输出管理
+- 5 种节点类型：bash / python / node / claude-code / loop
+- 并行执行（根节点并行 + 下游传播）
+- 条件分支（branches 统一配置）
+- 节点重试（指数退避）
+- 幂等执行（输出缓存）
+- Web UI 可视化（Cytoscape.js）
 - Claude Code 原生 JSON 输出（--output-format json, --json-schema）
+- Claude 对话导出（ConversationExporter）
 
-## 迭代计划
+## 迭代进度
 
 ### v0.1.0 - 基础框架 (2026-04-10) ✅
 
 **目标**: 最小可运行的类型系统和执行引擎
 
-**任务**:
-- [x] 实现 `src/types.ts` - 完整类型定义
-- [x] 实现 `src/schema.ts` - JSON Schema 校验
-- [x] 实现 `src/core/Graph.ts` - 图构建和 DAG 校验
-- [x] 实现 `src/runtime/AuditLogger.ts` - 审计日志
-- [x] 实现 `src/core/Executor.ts` - 执行引擎框架
-
-**验证**:
-- [x] `tsc --noEmit` 通过
-- [x] 单元测试：DAG 校验
-- [x] 单元测试：输入 Schema 校验
+- [x] `src/types.ts` - 完整类型定义
+- [x] `src/schema.ts` - JSON Schema 校验
+- [x] `src/core/Graph.ts` - 图构建和 DAG 校验
+- [x] `src/runtime/AuditLogger.ts` - 审计日志
+- [x] `src/core/Executor.ts` - 执行引擎框架
 
 ### v0.2.0 - Bash/Python/Node 节点 ✅
 
 **目标**: 支持脚本执行节点
 
-**任务**:
-- [x] 实现 `src/nodes/BashNode.ts`
-- [x] 实现 `src/nodes/PythonNode.ts`
-- [x] 实现 `src/nodes/NodeNode.ts`
-
-**验证**:
-- [x] 集成测试：bash 节点执行并返回 JSON
-- [x] 集成测试：python 节点执行并返回 JSON
-- [x] 集成测试：node 节点执行并返回 JSON
-- [x] 集成测试：节点间 JSON 数据传递
+- [x] `src/nodes/BashNode.ts`
+- [x] `src/nodes/PythonNode.ts`
+- [x] `src/nodes/NodeNode.ts`
 
 ### v0.3.0 - Claude Code 节点 ✅
 
 **目标**: 支持 Claude Code 集成
 
-**任务**:
-- [x] 实现 `src/nodes/ClaudeCodeNode.ts`
-- [x] 实现模板引擎 (Handlebars)
-- [x] 实现输入映射
-- [x] 实现配置文件模板渲染
-- [x] 实现工作目录隔离
-
-**验证**:
-- [x] 集成测试：Claude Code 节点执行
-- [x] 集成测试：模板渲染正确性
-- [x] 集成测试：审计日志包含完整对话
+- [x] `src/nodes/ClaudeCodeNode.ts`
+- [x] Handlebars 模板渲染
+- [x] 输入映射（inputMapping）
+- [x] 工作目录隔离
 
 ### v0.4.0 - CLI 和完整工作流 ✅
 
 **目标**: 命令行工具和完整工作流执行
 
-**任务**:
-- [x] 实现 `src/cli.ts`
-- [x] 实现目录初始化
-- [x] 实现临时目录清理
-- [x] 实现输出持久化
-
-**验证**:
-- [x] E2E 测试：完整工作流执行
-- [x] 验证输出文件正确写入
-- [x] 验证审计日志完整
+- [x] `src/cli.ts`（run / validate 命令）
+- [x] 目录初始化
+- [x] 输出持久化
+- [x] 审计日志
 
 ### v0.5.0 - 高级特性 ✅
 
 **目标**: 增强功能
 
-**任务**:
-- [x] 输入转换脚本支持
-- [x] 输出转换脚本支持
+- [x] 输入/输出转换脚本支持
 - [x] Claude Code 原生 JSON 输出（--output-format json）
 - [x] JSON Schema 约束（--json-schema）
 - [x] structured_output 自动提取
 
-**验证**:
-- [x] E2E 测试：含 Claude Code 节点的完整工作流
-
-### v0.6.0 - 并行执行、错误恢复、条件分支、Web UI ✅
+### v0.6.0 - 并行执行 + 重试 + 条件分支 + Web UI ✅
 
 **目标**: 增强功能和性能优化
 
-**任务**:
-- [x] 并行执行优化（独立分支并行）
-  - 实现 `getParallelGroups()` 方法，按层级分组节点
-  - 修改 `Executor.execute()` 使用 `Promise.all()` 并行执行同组节点
-- [x] 错误恢复和重试机制
-  - 添加 `RetryConfig` 配置（maxAttempts, backoff, delayMs）
-  - 实现指数退避策略
-  - 添加重试审计日志
-- [x] 条件分支支持
-  - 在 `EdgeDefinition` 中添加 `condition` 字段
-  - 实现 `evaluateEdgeCondition()` 方法进行条件求值
-  - 支持 `skip-edge`, `skip-node`, `error` 三种跳过行为
-- [x] Web UI 可视化
-  - 使用 Cytoscape.js 可视化 DAG
-  - 实现节点状态实时更新
-  - 提供执行日志查看器
-  - 添加 `serve` 命令启动 Web 服务器
-
-**验证**:
-- [x] 编译通过 `tsc`
-- [x] CLI 新增 `serve` 命令
-- [x] 并行组计算正确
-- [x] 条件边评估功能正常
+- [x] 并行执行（根节点 Promise.all + 下游传播触发）
+- [x] 错误恢复和重试机制（maxAttempts / backoff / delayMs）
+- [x] 条件分支（branches 统一配置 + onNoMatch）
+- [x] LoopNode（循环子图 + validator 动态校验）
+- [x] Web UI（Cytoscape DAG 可视化 + 状态轮询 + serve 命令）
+- [x] 幂等执行（输出文件缓存复用）
+- [x] startFrom 调试恢复模式
+- [x] Claude 对话导出（ConversationExporter + ClaudeExporterWorker）
+- [x] 孤立节点自动跳过
+- [x] GlobalContext 全局状态管理
 
 ## 技术决策记录
 
@@ -162,4 +123,33 @@ ORC (Orchestration Runner) - JSON 驱动的任务编排工具
 **理由**:
 - 无需解析 markdown 代码块
 - Schema 约束确保输出格式正确
-- 自动去除元数据（duration, usage, cost）
+- 自动去除元数据
+
+### 决策 5: 事件驱动传播（v0.6.0）
+
+**日期**: 2026-04
+
+**决策**: 并行执行采用根节点 Promise.all + 下游传播，而非全局分组调度
+
+**理由**:
+- 更自然的依赖触发模型
+- 节点级 Mutex 保证安全
+- 支持 startFrom 调试模式
+- 避免全局等待瓶颈
+
+### 决策 6: branches 统一条件配置（v0.6.1）
+
+**日期**: 2026-04
+
+**决策**: 所有条件判断统一为 `condition.branches` 配置，边默认 `to` 作为 fallback
+
+**理由**:
+- 一致的动态路由语义
+- 支持多分支路由
+- onNoMatch 提供灵活的无匹配处理
+
+## 已知问题
+
+1. **CLI 版本号**: `cli.ts` 中 `.version('0.1.0')` 与 `package.json` 的 `0.6.0` 不同步
+2. **测试源码缺失**: `test/` 目录不存在，仅有 `dist/test/*.js` 编译产物
+3. **条件求值安全**: 使用 `new Function('outputs', ...)` 动态编译表达式，存在注入风险
