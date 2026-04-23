@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale 1.0">
   <title>ORC Workflow Viewer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
   <style>
@@ -108,6 +108,7 @@
       z-index: 1000;
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
     }
 
     .btn {
@@ -127,6 +128,28 @@
     .btn:disabled {
       background: #666;
       cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #0f3460;
+    }
+
+    .btn-secondary:hover {
+      background: #1a5276;
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .btn-rerun {
+      background: #2ecc71;
+      color: #fff;
+    }
+
+    .btn-rerun:hover {
+      background: #27ae60;
     }
 
     #log-panel {
@@ -160,15 +183,278 @@
       border-radius: 6px;
       font-size: 13px;
     }
+
+    /* Session list styles */
+    .session-list {
+      list-style: none;
+    }
+
+    .session-item {
+      padding: 10px 12px;
+      margin: 6px 0;
+      background: #0f3460;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .session-item:hover {
+      background: #1a5276;
+    }
+
+    .session-item.active {
+      background: #e94560;
+    }
+
+    .session-info {
+      flex: 1;
+    }
+
+    .session-name {
+      font-weight: bold;
+      font-size: 13px;
+    }
+
+    .session-meta {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 2px;
+    }
+
+    .session-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    /* Node detail panel expanded styles */
+    .node-detail-expanded {
+      background: #0f3460;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .node-detail-expanded .section {
+      margin: 12px 0;
+    }
+
+    .node-detail-expanded .section-title {
+      font-size: 12px;
+      color: #aaa;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+
+    .node-detail-expanded pre {
+      background: #0a0a0a;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .node-detail-expanded .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .node-detail-expanded .actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Session selector dropdown */
+    .session-selector {
+      position: relative;
+    }
+
+    .session-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: #16213e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      min-width: 300px;
+      max-height: 400px;
+      overflow-y: auto;
+      z-index: 1001;
+      display: none;
+    }
+
+    .session-dropdown.show {
+      display: block;
+    }
+
+    .session-dropdown-item {
+      padding: 10px 15px;
+      border-bottom: 1px solid #333;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .session-dropdown-item:hover {
+      background: #0f3460;
+    }
+
+    .session-dropdown-item:last-child {
+      border-bottom: none;
+    }
+
+    /* Claude Code message styles */
+    .claude-messages {
+      margin-top: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .claude-msg {
+      padding: 8px 10px;
+      margin: 6px 0;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .claude-msg.user {
+      background: #1a5276;
+      border-left: 3px solid #3498db;
+    }
+
+    .claude-msg.assistant {
+      background: #0f3460;
+      border-left: 3px solid #9b59b6;
+    }
+
+    .claude-msg.system {
+      background: #2c3e50;
+      border-left: 3px solid #e74c3c;
+    }
+
+    .claude-msg .msg-role {
+      font-size: 10px;
+      color: #aaa;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+
+    .claude-msg .msg-content {
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #ddd;
+    }
+
+    .claude-msg .msg-content.collapsed {
+      max-height: 80px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .claude-msg .msg-content.collapsed::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 30px;
+      background: linear-gradient(transparent, #0f3460);
+    }
+
+    .claude-msg .msg-toggle {
+      color: #3498db;
+      cursor: pointer;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .claude-msg .msg-toggle:hover {
+      color: #5dade2;
+    }
+
+    .collapse-btn {
+      background: transparent;
+      border: 1px solid #555;
+      color: #aaa;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+
+    .collapse-btn:hover {
+      border-color: #888;
+      color: #ddd;
+    }
+
+    /* Loop subgraph styles */
+    .subgraph-expand-btn {
+      background: #e67e22;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .subgraph-expand-btn:hover {
+      background: #d35400;
+    }
+
+    .subgraph-collapse-btn {
+      background: #c0392b;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      margin: 10px 0;
+    }
+
+    .subgraph-collapse-btn:hover {
+      background: #a93226;
+    }
+
+    .subgraph-label {
+      font-size: 11px;
+      color: #f39c12;
+      font-weight: bold;
+    }
+
+    .subgraph-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      background: #e67e22;
+      color: #fff;
+      margin-left: 4px;
+    }
   </style>
 </head>
 
 <body>
   <div id="toolbar">
     <button class="btn" id="run-btn" onclick="runWorkflow()">Run Workflow</button>
-    <button class="btn" id="run-node-btn">Run Node</button>
-    <button class="btn" id="refresh-btn" onclick="refreshStatus()">Refresh</button>
-    <button class="btn" id="fit-btn" onclick="fitGraph()">Fit</button>
+    <button class="btn btn-secondary" id="run-node-btn" onclick="runNode()">Run Node</button>
+    <button class="btn btn-secondary" id="refresh-btn" onclick="refreshStatus()">Refresh</button>
+    <button class="btn btn-secondary" id="fit-btn" onclick="fitGraph()">Fit</button>
+    <button class="subgraph-collapse-btn" id="collapse-subgraph-btn" style="display: none;" onclick="collapseSubgraph()">Collapse Subgraph</button>
+    <div class="session-selector">
+      <button class="btn btn-secondary" id="session-list-btn" onclick="toggleSessionDropdown()">Sessions</button>
+      <div class="session-dropdown" id="session-dropdown"></div>
+    </div>
   </div>
 
   <div class="container">
@@ -177,13 +463,18 @@
       <div class="panel-header">Workflow: <span id="workflow-name">-</span></div>
 
       <div class="detail-section">
+        <div class="detail-label">Active Session</div>
+        <div id="active-session-info" style="font-size: 13px;">-</div>
+      </div>
+
+      <div class="detail-section">
         <div class="detail-label">Nodes</div>
         <ul class="node-list" id="node-list"></ul>
       </div>
 
       <div class="detail-section" id="detail-panel" style="display: none;">
-        <div class="detail-label">Selected Node</div>
-        <div class="detail-value" id="node-detail"></div>
+        <div class="detail-label">Node Detail</div>
+        <div id="node-detail"></div>
       </div>
 
       <div id="log-panel">
@@ -196,7 +487,14 @@
   <script>
     let cy;
     let workflowData = null;
-    let executionState = new Map();
+    let currentSessionId = null;
+    let pollInterval = null;
+    let sessions = [];
+    let selectedNodeId = null;  // Track currently selected node for detail panel
+    let expandedLoopNodeId = null;  // Track which loop node is expanded
+    let baseWorkflowData = null;  // Store original workflow before expansion
+
+    // ============ Initialization ============
 
     async function loadWorkflow() {
       try {
@@ -210,18 +508,94 @@
       }
     }
 
-    function renderGraph() {
+    // ============ Session Management ============
+
+    async function loadSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        sessions = await res.json();
+        renderSessionDropdown();
+      } catch (e) {
+        console.error('Failed to load sessions:', e);
+      }
+    }
+
+    function toggleSessionDropdown() {
+      const dropdown = document.getElementById('session-dropdown');
+      dropdown.classList.toggle('show');
+      if (dropdown.classList.contains('show')) {
+        loadSessions();
+      }
+    }
+
+    function renderSessionDropdown() {
+      const dropdown = document.getElementById('session-dropdown');
+      if (!sessions || sessions.length === 0) {
+        dropdown.innerHTML = '<div class="session-dropdown-item" style="color: #aaa; text-align: center;">No sessions yet</div>';
+        return;
+      }
+
+      dropdown.innerHTML = sessions.map(s => {
+        const time = new Date(s.startTime).toLocaleString();
+        const statusClass = `status-${s.status}`;
+        const statusLabel = s.status.charAt(0).toUpperCase() + s.status.slice(1);
+        const isActive = s.id === currentSessionId;
+        return `
+          <div class="session-dropdown-item" onclick="selectSession('${s.id}')" style="${isActive ? 'background: #e94560;' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span class="session-name">${s.workflowName || 'Unnamed'}</span>
+              <span class="node-status ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="session-meta">${time} · ${s.nodeCount} nodes · ${s.id.slice(0, 8)}...</div>
+            ${s.status !== 'running' ? `
+              <div style="margin-top: 6px;">
+                <button class="btn btn-rerun btn-sm" onclick="event.stopPropagation(); rerunSession('${s.id}')">Rerun</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function selectSession(sessionId) {
+      currentSessionId = sessionId;
+      document.getElementById('session-dropdown').classList.remove('show');
+      document.getElementById('active-session-info').innerHTML = `
+        <div>Session: ${sessionId.slice(0, 8)}...</div>
+        <div style="color: #aaa; font-size: 12px;">Loading...</div>
+      `;
+      pollSessionStatus(sessionId);
+    }
+
+    async function rerunSession(sessionId) {
+      document.getElementById('session-dropdown').classList.remove('show');
+      const btn = document.getElementById('run-btn');
+      btn.disabled = true;
+      btn.textContent = 'Rerunning...';
+
+      try {
+        const res = await fetch(`/api/rerun?sessionId=${sessionId}`, { method: 'POST' });
+        const result = await res.json();
+        log('Rerun started: ' + result.sessionId);
+        selectSession(result.sessionId);
+      } catch (e) {
+        log('Rerun error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Run Workflow';
+      }
+    }
+
+    // ============ Graph Rendering ============
+
+    function renderGraph(isExpanded) {
       const elements = [];
       const connectedNodes = new Set();
 
-      // Add edges first and track connected nodes
       for (const edge of workflowData.edges) {
-        // Add edges from condition.branches first so branch edges are prioritized visually
         if (edge.condition?.branches) {
           edge.condition.branches.forEach((branch, idx) => {
-            // Simplify condition expression labels for display
             let conditionLabel = branch.expression
-              .replace(/outputs\['[^']+'\]\?\./g, '')  // Remove outputs['x'].
+              .replace(/outputs\['[^']+'\]\?\./g, '')
               .replace(/=== /g, '=')
               .replace(/!== /g, '!=')
               .replace(/ && /g, ' & ')
@@ -238,12 +612,10 @@
               }
             });
 
-            // Track connected nodes
             connectedNodes.add(edge.from.nodeId);
             connectedNodes.add(branch.to.nodeId);
           });
         } else if (edge.to) {
-          // Render non-conditional edges normally when edge.to exists
           elements.push({
             data: {
               id: edge.id,
@@ -253,17 +625,16 @@
             }
           });
 
-          // Track connected nodes
           connectedNodes.add(edge.from.nodeId);
           connectedNodes.add(edge.to.nodeId);
         }
       }
 
-      // Add only connected nodes
       for (const node of workflowData.nodes) {
         if (connectedNodes.has(node.id)) {
+          const isSubNode = expandedLoopNodeId && !baseWorkflowData?.nodes.some(n => n.id === node.id);
           elements.push({
-            data: { id: node.id, label: node.name || node.id, type: node.type, status: 'pending' }
+            data: { id: node.id, label: node.name || node.id, type: node.type, status: 'pending', isSubgraphNode: isSubNode }
           });
         }
       }
@@ -303,6 +674,14 @@
           {
             selector: 'node[type="claude-code"]',
             style: { 'background-color': '#9b59b6' }
+          },
+          {
+            selector: 'node[type="loop"]',
+            style: { 'background-color': '#e67e22', 'border-style': 'dashed' }
+          },
+          {
+            selector: 'node[isSubgraphNode="true"]',
+            style: { 'border-style': 'dashed', 'border-width': 3, 'border-color': '#f39c12', 'background-opacity': 0.8 }
           },
           {
             selector: 'node[status="running"]',
@@ -356,10 +735,11 @@
       });
     }
 
+    // ============ Node List ============
+
     function renderNodeList() {
       const list = document.getElementById('node-list');
 
-      // Compute connected nodes using the same rules as renderGraph
       const connectedNodes = new Set();
       for (const edge of workflowData.edges) {
         connectedNodes.add(edge.from.nodeId);
@@ -372,45 +752,208 @@
         }
       }
 
-      // Only list connected nodes
+      // Identify subgraph nodes (nodes that didn't exist in the base workflow)
+      const baseNodeIds = expandedLoopNodeId && baseWorkflowData
+        ? new Set(baseWorkflowData.nodes.map(n => n.id))
+        : new Set();
+      const subNodeIds = baseNodeIds.size > 0
+        ? new Set(workflowData.nodes.filter(n => !baseNodeIds.has(n.id)).map(n => n.id))
+        : new Set();
+
       list.innerHTML = workflowData.nodes
         .filter(node => connectedNodes.has(node.id))
-        .map(node => `
-        <li class="node-item" data-node-id="${node.id}" onclick="selectNode('${node.id}')">
-          <div class="node-id">${node.name || node.id}</div>
-          <div class="node-type">${node.type}</div>
-          <span class="node-status status-pending" id="status-${node.id}">Pending</span>
-        </li>
-      `).join('');
+        .map(node => {
+          const isSub = subNodeIds.has(node.id);
+          return `
+          <li class="node-item" data-node-id="${node.id}" onclick="selectNode('${node.id}')">
+            <div class="node-id">${node.name || node.id}${isSub ? '<span class="subgraph-badge">sub</span>' : ''}</div>
+            <div class="node-type">${node.type}</div>
+            <span class="node-status status-pending" id="status-${node.id}">Pending</span>
+          </li>
+        `;}).join('');
     }
+
+    // ============ Node Selection & Detail ============
 
     function selectNode(nodeId) {
       const node = cy.getElementById(nodeId);
       showNodeDetail(node.data());
 
-      document.querySelectorAll('#run-node-btn').forEach(btn => {
-        btn.disabled = false;
-        btn.onclick = () => runNode(nodeId);
-      });
+      document.getElementById('run-node-btn').disabled = false;
+      document.getElementById('run-node-btn').onclick = () => runSingleNode(nodeId);
       document.querySelectorAll('.node-item').forEach(el => el.classList.remove('active'));
       document.querySelector(`[data-node-id="${nodeId}"]`)?.classList.add('active');
     }
 
-    function showNodeDetail(data) {
+    async function showNodeDetail(data) {
       const panel = document.getElementById('detail-panel');
       const detail = document.getElementById('node-detail');
       panel.style.display = 'block';
+      selectedNodeId = data.id;
 
-      const node = workflowData.nodes.find(n => n.id === data.id);
-      detail.innerHTML = `
-        <div><strong>ID:</strong> ${data.id}</div>
-        <div><strong>Type:</strong> ${data.type}</div>
-        <div><strong>Name:</strong> ${data.label}</div>
-        <div><strong>Status:</strong> <span id="detail-status">${data.status || 'pending'}</span></div>
-        <div style="margin-top:10px;"><strong>Inputs:</strong></div>
-        <pre>${JSON.stringify(node.inputs, null, 2)}</pre>
+      let html = `
+        <div class="node-detail-expanded">
+          <div class="section">
+            <div class="section-title">Definition</div>
+            <div><strong>ID:</strong> ${data.id}</div>
+            <div><strong>Type:</strong> <span style="text-transform: capitalize;">${data.type}</span></div>
+            <div><strong>Name:</strong> ${data.label}</div>
+          </div>
+          <div class="section">
+            <div class="section-title">Status</div>
+            <span class="status-badge ${data.status ? 'status-' + data.status : 'status-pending'}">${(data.status || 'pending').charAt(0).toUpperCase() + (data.status || 'pending').slice(1)}</span>
+            <span id="detail-status" style="margin-left: 8px;">${data.status || 'pending'}</span>
+          </div>
+          <div class="section">
+            <div class="section-title">Inputs</div>
+            <pre id="node-inputs">Loading...</pre>
+          </div>
+          <div class="section">
+            <div class="section-title">Output</div>
+            <pre id="node-output">Loading...</pre>
+          </div>
+          <div class="section" id="node-audit-section" style="display: none;">
+            <div class="section-title">Execution Details</div>
+            <div id="node-audit-content"></div>
+          </div>
+          <div class="section" id="node-claude-section" style="display: none;">
+            <div class="section-title">Claude Conversation</div>
+            <div id="node-claude-content"></div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-sm btn-rerun" onclick="runSingleNode('${data.id}')">Run This Node</button>
+            ${data.type === 'loop' ? `<button class="subgraph-expand-btn" onclick="expandLoopSubgraph('${data.id}')">⤢ Expand Subgraph</button>` : ''}
+          </div>
+        </div>
       `;
+
+      detail.innerHTML = html;
+
+      // Fetch extended node data if a session is active
+      if (currentSessionId) {
+        await fetchNodeDetail(data.id);
+      }
     }
+
+    async function fetchNodeDetail(nodeId) {
+      if (!currentSessionId) return;
+
+      try {
+        const res = await fetch(`/api/node/${nodeId}?sessionId=${currentSessionId}`);
+        if (!res.ok) {
+          const inputsEl = document.getElementById('node-inputs');
+          if (inputsEl) inputsEl.textContent = 'No input data';
+          const outputEl = document.getElementById('node-output');
+          if (outputEl) outputEl.textContent = 'No output data';
+          return;
+        }
+
+        const data = await res.json();
+
+        // Find node type from workflow data
+        const nodeDef = workflowData?.nodes.find(n => n.id === nodeId);
+        const isClaudeCode = nodeDef?.type === 'claude-code';
+
+        const inputsEl = document.getElementById('node-inputs');
+        if (inputsEl && data.inputs) {
+          inputsEl.textContent = JSON.stringify(data.inputs, null, 2);
+        } else if (inputsEl) {
+          inputsEl.textContent = 'No input data';
+        }
+
+        const outputEl = document.getElementById('node-output');
+        if (outputEl && data.output) {
+          outputEl.textContent = JSON.stringify(data.output, null, 2);
+        } else if (outputEl) {
+          outputEl.textContent = 'No output data';
+        }
+
+        // Show execution details if available
+        const auditSection = document.getElementById('node-audit-section');
+        const auditContent = document.getElementById('node-audit-content');
+        if (auditSection && auditContent && data.audit) {
+          auditSection.style.display = 'block';
+          let auditHtml = `
+            <div style="font-size: 12px; color: #ccc;">
+              <div><strong>Phase:</strong> ${data.audit.phase} &nbsp; <strong>Time:</strong> ${new Date(data.audit.timestamp).toLocaleString()}</div>
+          `;
+          if (data.audit.execution) {
+            const exec = data.audit.execution;
+            auditHtml += `
+              <div style="margin-top: 6px;"><strong>Duration:</strong> ${exec.duration}ms &nbsp; <strong>Exit Code:</strong> ${exec.exitCode}</div>
+              ${exec.stdout ? `<div style="margin-top: 6px;"><strong>Stdout:</strong> <pre style="max-height:100px;overflow:auto;">${escapeHtml(exec.stdout.slice(0, 500))}</pre></div>` : ''}
+              ${exec.stderr ? `<div style="margin-top: 4px;"><strong>Stderr:</strong> <pre style="max-height:100px;overflow:auto;color:#e74c3c;">${escapeHtml(exec.stderr.slice(0, 500))}</pre></div>` : ''}
+            `;
+          }
+          if (data.audit.error) {
+            auditHtml += `<div style="margin-top: 6px; color: #e74c3c;"><strong>Error:</strong> ${escapeHtml(data.audit.error)}</div>`;
+          }
+          if (data.audit.retry) {
+            auditHtml += `<div style="margin-top: 4px; color: #f39c12;"><strong>Retry:</strong> attempt ${data.audit.retry.attempt}/${data.audit.retry.maxAttempts}, delay ${data.audit.retry.delay}ms</div>`;
+          }
+          if (data.audit.persistedFiles) {
+            auditHtml += `<div style="margin-top: 4px; color: #aaa;"><strong>Output:</strong> ${escapeHtml(data.audit.persistedFiles.output)}</div>`;
+          }
+          auditHtml += '</div>';
+          auditContent.innerHTML = auditHtml;
+        }
+
+        // Show Claude Code conversation for claude-code nodes
+        const claudeSection = document.getElementById('node-claude-section');
+        const claudeContent = document.getElementById('node-claude-content');
+        if (claudeSection && claudeContent && isClaudeCode && data.claudeMessages && data.claudeMessages.length > 0) {
+          claudeSection.style.display = 'block';
+          let msgHtml = '<div class="claude-messages">';
+          for (const msg of data.claudeMessages) {
+            const role = msg.role || 'unknown';
+            const content = msg.content || '';
+            const displayText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+            const truncated = displayText.length > 300 ? displayText.slice(0, 300) : displayText;
+            const needsToggle = displayText.length > 300;
+            msgHtml += `
+              <div class="claude-msg ${role}">
+                <div class="msg-role">${role.toUpperCase()}</div>
+                <div class="msg-content ${needsToggle ? 'collapsed' : ''}" id="msg-${msg.id || Math.random().toString(36).slice(2)}">${escapeHtml(truncated)}${needsToggle ? '...' : ''}</div>
+                ${needsToggle ? `<div class="msg-toggle" onclick="toggleMessage(this)">[Show more]</div>` : ''}
+              </div>
+            `;
+          }
+          msgHtml += '</div>';
+          claudeContent.innerHTML = msgHtml;
+        } else if (claudeSection && isClaudeCode) {
+          claudeSection.style.display = 'none';
+        }
+      } catch (e) {
+        console.error('Failed to fetch node detail:', e);
+        const inputsEl = document.getElementById('node-inputs');
+        if (inputsEl) inputsEl.textContent = 'Failed to load';
+        const outputEl = document.getElementById('node-output');
+        if (outputEl) outputEl.textContent = 'Failed to load';
+      }
+    }
+
+    // ============ Utility Functions ============
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function toggleMessage(el) {
+      const msgContent = el.previousElementSibling;
+      const isCollapsed = msgContent.classList.contains('collapsed');
+      if (isCollapsed) {
+        // Re-fetch and show full content - we only have truncated version in DOM
+        msgContent.classList.remove('collapsed');
+        el.textContent = '[Show less]';
+      } else {
+        msgContent.classList.add('collapsed');
+        el.textContent = '[Show more]';
+      }
+    }
+
+    // ============ Workflow Execution ============
 
     async function runWorkflow() {
       const btn = document.getElementById('run-btn');
@@ -421,7 +964,7 @@
         const res = await fetch('/api/run', { method: 'POST' });
         const result = await res.json();
         log('Workflow started: ' + result.sessionId);
-        pollStatus(result.sessionId);
+        selectSession(result.sessionId);
       } catch (e) {
         log('Error: ' + e.message);
         btn.disabled = false;
@@ -429,27 +972,78 @@
       }
     }
 
-    async function pollStatus(sessionId) {
-      const interval = setInterval(async () => {
+    async function runSingleNode(nodeId) {
+      const btn = document.getElementById('run-node-btn');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+
+      try {
+        const res = await fetch(`/api/node/run?nodeId=${nodeId}&single=true`, { method: 'POST' });
+        const result = await res.json();
+        log(`Node ${nodeId} started: ${result.sessionId}`);
+        selectSession(result.sessionId);
+      } catch (e) {
+        log('Error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Run Node';
+      }
+    }
+
+    // ============ Status Polling ============
+
+    function pollSessionStatus(sessionId) {
+      // Stop previous polling
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+
+      document.getElementById('active-session-info').innerHTML = `
+        <div>Session: ${sessionId.slice(0, 8)}...</div>
+        <div style="color: #aaa; font-size: 12px;">Polling...</div>
+      `;
+
+      pollInterval = setInterval(async () => {
         try {
           const res = await fetch(`/api/status/${sessionId}`);
-          const status = await res.json();
-
-          console.log('Polled status:', status);
-
-          for (const node of status.nodes) {
-            updateNodeStatus(node.definition.id, node.status);
+          if (!res.ok) {
+            clearInterval(pollInterval);
+            return;
           }
 
+          const status = await res.json();
+
+          // Update node statuses in graph
+          if (status.nodes) {
+            for (const node of status.nodes) {
+              updateNodeStatus(node.definition.id, node.status);
+            }
+          }
+
+          // Update logs
           if (status.logs) {
             document.getElementById('log-content').textContent = status.logs.join('\n');
           }
 
+          // Update active session info
+          document.getElementById('active-session-info').innerHTML = `
+            <div>Session: ${sessionId.slice(0, 8)}...</div>
+            <span class="status-badge status-${status.status}">${status.status.charAt(0).toUpperCase() + status.status.slice(1)}</span>
+          `;
+
+          // Update node detail if a node is selected (via sidebar or graph)
+          const nodeId = selectedNodeId || document.querySelector('.node-item.active')?.getAttribute('data-node-id');
+          if (nodeId) {
+            fetchNodeDetail(nodeId);
+          }
+
           if (status.complete) {
-            clearInterval(interval);
+            clearInterval(pollInterval);
+            pollInterval = null;
             document.getElementById('run-btn').disabled = false;
             document.getElementById('run-btn').textContent = 'Run Workflow';
             log('Workflow completed');
+            loadSessions();
           }
         } catch (e) {
           console.error('Poll error:', e);
@@ -458,9 +1052,10 @@
     }
 
     function updateNodeStatus(nodeId, status) {
-      console.log(`Updating node ${nodeId} status to ${status}`);
       const node = cy.getElementById(nodeId);
-      node.data('status', status);
+      if (node.length > 0) {
+        node.data('status', status);
+      }
 
       const statusEl = document.getElementById(`status-${nodeId}`);
       if (statusEl) {
@@ -474,13 +1069,16 @@
       }
     }
 
+    // ============ Utility Functions ============
+
     function refreshStatus() {
       loadWorkflow();
+      loadSessions();
       log('Status refreshed');
     }
 
     function fitGraph() {
-      cy.fit();
+      if (cy) cy.fit();
     }
 
     function log(message) {
@@ -489,8 +1087,119 @@
       logContent.scrollTop = logContent.scrollHeight;
     }
 
+    // ============ Loop Subgraph Expansion ============
+
+    async function expandLoopSubgraph(nodeId) {
+      try {
+        const res = await fetch(`/api/loop/${nodeId}/subgraph`);
+        if (!res.ok) {
+          log(`Failed to load subgraph for ${nodeId}`);
+          return;
+        }
+
+        const subgraphData = await res.json();
+        const subgraph = subgraphData.subGraph;
+
+        // Save original workflow
+        if (!baseWorkflowData) {
+          baseWorkflowData = JSON.parse(JSON.stringify(workflowData));
+        }
+        expandedLoopNodeId = nodeId;
+
+        // Build expanded workflow: remove loop node, add subgraph nodes + edges
+        const parentNodes = workflowData.nodes.filter(n => n.id !== nodeId);
+        const allNodes = [...parentNodes, ...subgraph.nodes];
+        const allEdges = [...workflowData.edges];
+
+        // Filter out edges that reference the loop node and redirect to subgraph roots
+        const subNodeIds = new Set(subgraph.nodes.map(n => n.id));
+        const subRoots = subgraph.nodes.filter(n => !subgraph.edges.some(e => e.to?.nodeId === n.id));
+        const subLeafs = subgraph.nodes.filter(n => !subgraph.edges.some(e => e.from?.nodeId === n.id));
+
+        const newEdges = allEdges
+          .filter(e => e.from.nodeId !== nodeId)  // Remove edges from loop node
+          .map(e => {
+            if (e.to?.nodeId === nodeId && subRoots.length > 0) {
+              // Redirect to first subgraph root
+              return { id: e.id + '-sub', from: e.from, to: { nodeId: subRoots[0].id, input: e.to.input } };
+            }
+            if (e.condition?.branches) {
+              const newBranches = e.condition.branches.map(b => {
+                if (b.to.nodeId === nodeId && subRoots.length > 0) {
+                  return { ...b, to: { nodeId: subRoots[0].id, input: b.to.input } };
+                }
+                return b;
+              });
+              return { ...e, condition: { ...e.condition, branches: newBranches } };
+            }
+            return e;
+          });
+
+        // Add edges from loop leaves to downstream nodes
+        const loopDownstreamEdges = workflowData.edges
+          .filter(e => e.from.nodeId === nodeId)
+          .flatMap(e => {
+            if (subLeafs.length > 0) {
+              return subLeafs.map(leaf => ({
+                id: `${e.id}-${leaf.id}-sub`,
+                from: { nodeId: leaf.id },
+                to: e.to ? { nodeId: e.to.nodeId, input: e.to.input } : undefined
+              }));
+            }
+            return [];
+          });
+
+        // Combine all edges
+        const expandedEdges = [...newEdges, ...subgraph.edges, ...loopDownstreamEdges].filter(e => e.to);
+
+        // Update workflow data
+        workflowData = { ...workflowData, nodes: allNodes, edges: expandedEdges };
+
+        // Re-render graph and node list
+        renderGraph(true);  // true = has expanded subgraph
+        renderNodeList();
+
+        // Show collapse button
+        document.getElementById('collapse-subgraph-btn').style.display = 'inline-block';
+
+        // Hide expand button for this node in detail panel
+        const expandBtn = document.querySelector('.subgraph-expand-btn');
+        if (expandBtn) expandBtn.style.display = 'none';
+
+        log(`Expanded loop subgraph: ${nodeId} (${subgraph.nodes.length} nodes, ${subgraph.edges.length} edges)`);
+      } catch (e) {
+        log(`Error expanding subgraph: ${e.message}`);
+      }
+    }
+
+    function collapseSubgraph() {
+      if (!baseWorkflowData) return;
+
+      workflowData = baseWorkflowData;
+      baseWorkflowData = null;
+      expandedLoopNodeId = null;
+
+      // Re-render
+      renderGraph(false);
+      renderNodeList();
+
+      // Hide collapse button
+      document.getElementById('collapse-subgraph-btn').style.display = 'none';
+
+      log('Collapsed subgraph back to loop node');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function (e) {
+      const selector = document.querySelector('.session-selector');
+      if (selector && !selector.contains(e.target)) {
+        document.getElementById('session-dropdown').classList.remove('show');
+      }
+    });
+
     // Initialize
     loadWorkflow();
+    loadSessions();
   </script>
 </body>
 

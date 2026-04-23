@@ -474,3 +474,95 @@ orc/
 3. **节点级 Mutex**: 每个 NodeInstance 独立 Mutex，防止并发竞态
 4. **输出持久化**: 每节点 JSON 输出保存到 `output/sessionId/nodeId.json`
 5. **调试模式**: `startFrom(nodeId)` 支持从指定节点恢复，预加载上游缓存
+
+---
+
+## 附录：v0.6.1 Serve 功能增强
+
+### 新增 API 端点
+
+**1. Session 管理**
+```typescript
+// GET /api/sessions
+// 返回：SessionSummary[]
+[{
+  id: "xxx",
+  workflowName: "复杂工作流测试",
+  status: "complete",
+  startTime: 1234567890,
+  endTime: 1234567895,
+  nodeCount: 7
+}]
+
+// POST /api/rerun?sessionId=xxx
+// 清理旧输出目录，启动新执行
+// 返回：{ sessionId: "new-xxx" }
+```
+
+**2. 节点详情**
+```typescript
+// GET /api/node/:nodeId?sessionId=xxx
+// 返回：{ definition, status, inputs, output, audit, claudeMessages }
+{
+  "definition": { "id": "claude-analysis", "type": "claude-code", ... },
+  "status": "success",
+  "inputs": { "mergedData": {...} },
+  "output": { "analysis": "..." },
+  "audit": {
+    "phase": "complete",
+    "timestamp": "...",
+    "execution": { "duration": 5230, "exitCode": 0, "stdout": "...", "stderr": "..." }
+  },
+  "claudeMessages": [
+    { "role": "user", "content": "..." },
+    { "role": "assistant", "content": "..." }
+  ]
+}
+```
+
+**3. Loop 子图**
+```typescript
+// GET /api/loop/:nodeId/subgraph
+// 返回：{ nodeId, subGraph, maxAttempts, validator }
+{
+  "nodeId": "data-validation-loop",
+  "subGraph": {
+    "nodes": [{ "id": "validate", "type": "bash", ... }],
+    "edges": [{ "id": "edge-validate-to-fix", "from": {...}, "to": {...} }]
+  },
+  "maxAttempts": 3,
+  "validator": "outputs['validate']?.valid === true"
+}
+
+// GET /api/workflow?expandLoop=:nodeId
+// 返回：展开 Loop 子图后的完整工作流定义
+```
+
+### UI 增强
+
+**Session 下拉列表**
+- 显示所有历史会话（按 startTime 降序）
+- 每个会话显示：工作流名称、状态徽章、时间戳、节点数
+- 非运行中会话显示 "Rerun" 按钮
+- 点击会话 ID 切换到该会话视图并启动轮询
+
+**节点详情面板**
+- Execution Details 折叠区域：显示 phase/timestamp/duration/exitCode/stdout/stderr
+- Claude Conversation 区域：显示对话消息（用户/助手分色，长文本可折叠）
+- "Run This Node" 按钮：单节点调试执行
+
+**Loop 子图展开**
+- Loop 节点详情面板显示 "⤢ Expand Subgraph" 按钮
+- 展开后：
+  - 拓扑图显示子节点（虚线边框 + 橙色"sub"徽章）
+  - 工具栏显示 "Collapse Subgraph" 按钮
+  - 侧边栏节点列表标记"sub"徽章
+- 收起后：恢复到 loop 节点视图
+
+### 示例工作流
+
+`examples/complex-pipeline.json` 包含完整的 Loop 子图测试用例：
+- `data-validation-loop` 节点：包含 `validate` → `fix` 子图
+- maxAttempts: 3
+- validator: `outputs['validate']?.valid === true`
+- 边：`merge-data` → `data-validation-loop` → `report` + `claude-analysis`

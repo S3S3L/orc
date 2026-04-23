@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "复杂工作流测试",
-  "description": "验证一对多输出和多对一输入功能",
+  "description": "验证一对多输出、多对一输入和循环子图功能",
   "schemaBaseDir": ["./schemas/complex"],
   "nodes": [
     {
@@ -42,6 +42,45 @@
       "config": {
         "script": "./scripts/complex/merge-data.py",
         "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "data-validation-loop",
+      "type": "loop",
+      "name": "数据校验循环",
+      "description": "循环校验合并后的数据，失败时修复并最多重试3次",
+      "config": {
+        "subGraph": {
+          "nodes": [
+            {
+              "id": "validate",
+              "type": "bash",
+              "name": "校验数据",
+              "config": {
+                "script": "./scripts/complex/validate-data.sh",
+                "argsPassing": { "type": "stdin" }
+              }
+            },
+            {
+              "id": "fix",
+              "type": "bash",
+              "name": "修复数据",
+              "config": {
+                "script": "./scripts/complex/fix-data.sh",
+                "argsPassing": { "type": "stdin" }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "edge-validate-to-fix",
+              "from": { "nodeId": "validate" },
+              "to": { "nodeId": "fix", "input": "data" }
+            }
+          ]
+        },
+        "maxAttempts": 3,
+        "validator": "outputs['validate']?.valid === true"
       }
     },
     {
@@ -104,13 +143,18 @@
       "to": { "nodeId": "merge-data", "input": "appConfig" }
     },
     {
-      "id": "edge-merge-to-report",
+      "id": "edge-merge-to-loop",
       "from": { "nodeId": "merge-data" },
+      "to": { "nodeId": "data-validation-loop", "input": "data" }
+    },
+    {
+      "id": "edge-loop-to-report",
+      "from": { "nodeId": "data-validation-loop" },
       "to": { "nodeId": "report", "input": "data" }
     },
     {
-      "id": "edge-merge-to-claude",
-      "from": { "nodeId": "merge-data" },
+      "id": "edge-loop-to-claude",
+      "from": { "nodeId": "data-validation-loop" },
       "to": { "nodeId": "claude-analysis", "input": "mergedData" }
     }
   ]

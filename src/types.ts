@@ -236,6 +236,16 @@ export interface ExecutionState {
   error?: string;
 }
 
+// ============ Session Summary ============
+export interface SessionSummary {
+  id: string;
+  workflowName: string;
+  status: 'running' | 'complete' | 'error';
+  startTime: number;
+  endTime?: number;
+  nodeCount: number;
+}
+
 // ============ Audit Entries ============
 export interface AuditEntry {
   id: string;

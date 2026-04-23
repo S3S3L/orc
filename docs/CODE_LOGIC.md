@@ -201,6 +201,7 @@ ORC (Orchestration Runner) 是一个 JSON 驱动的任务编排工具，支持 D
 │    - 原生 Node.js http               │
 │    - 监听指定端口                     │
 │    - 提供静态 HTML (src/web/)        │
+│    - 配置目录路径 (output/audit/workspace) │
 └─────────────────────────────────────┘
   │
   │ HTTP 请求处理
@@ -211,10 +212,13 @@ ORC (Orchestration Runner) 是一个 JSON 驱动的任务编排工具，支持 D
   │                                                   │
   │ GET  /api/workflow                                │
   │   → 返回 lastWorkflow JSON                        │
+  │ GET  /api/workflow?expandLoop=:nodeId            │
+  │   → 返回展开 Loop 子图后的工作流                    │
   │                                                   │
   │ POST /api/run?cleanOldFiles=&sessionId=           │
   │   ├─ 生成 sessionId                               │
   │   ├─ 创建 execution state                         │
+  │   ├─ 记录 sessionHistory                          │
   │   └─ 后台执行 runWorkflow() (异步)                │
   │                                                   │
   │ POST /api/node/run?nodeId=&single=&sessionId=     │
@@ -222,6 +226,21 @@ ORC (Orchestration Runner) 是一个 JSON 驱动的任务编排工具，支持 D
   │                                                   │
   │ GET  /api/status/{sessionId}                      │
   │   → 返回 { status, logs, nodes }                  │
+  │                                                   │
+  │ GET  /api/sessions                                │
+  │   → 返回 SessionSummary[] 历史会话列表              │
+  │                                                   │
+  │ POST /api/rerun?sessionId=xxx                     │
+  │   ├─ 清理旧输出目录                                │
+  │   ├─ 生成新 sessionId                             │
+  │   └─ 后台执行 runWorkflow() (异步)                │
+  │                                                   │
+  │ GET  /api/node/:nodeId?sessionId=xxx              │
+  │   → 返回 { definition, status, inputs, output,    │
+  │           audit, claudeMessages }                 │
+  │                                                   │
+  │ GET  /api/loop/:nodeId/subgraph                   │
+  │   → 返回 { nodeId, subGraph, maxAttempts, ... }   │
   │                                                   │
   └───────────────────────────────────────────────────┘
 ```
@@ -232,8 +251,25 @@ class GlobalContext {
   lastWorkflow: WorkflowDefinition | null = null;
   executionStates = new Map<string, ExecutionState>();
   executions = new Map<string, Executor>();
+  // v0.6.1 新增
+  outputDir: string | null = null;       // serve 命令配置
+  auditDir: string | null = null;
+  workspaceDir: string | null = null;
+  sessionHistory: SessionSummary[] = []; // 历史会话记录（降序）
 }
 export const GLOBAL_CONTEXT = new GlobalContext();
+```
+
+**SessionSummary 接口：**
+```typescript
+interface SessionSummary {
+  id: string;
+  workflowName: string;
+  status: 'running' | 'complete' | 'error';
+  startTime: number;
+  endTime?: number;
+  nodeCount: number;
+}
 ```
 
 ---

@@ -153,3 +153,57 @@ ORC (Orchestration Runner) - JSON 驱动的任务编排工具
 1. **CLI 版本号**: `cli.ts` 中 `.version('0.1.0')` 与 `package.json` 的 `0.6.0` 不同步
 2. **测试源码缺失**: `test/` 目录不存在，仅有 `dist/test/*.js` 编译产物
 3. **条件求值安全**: 使用 `new Function('outputs', ...)` 动态编译表达式，存在注入风险
+
+### v0.6.1 - Serve 功能增强 (2026-04-23) ✅
+
+**目标**: 将 serve 命令提升到与 run 命令功能对齐
+
+- [x] Session 管理 API（`/api/sessions`、`/api/rerun`）
+- [x] 节点详情 API（`/api/node/:nodeId`）
+- [x] Loop 子图 API（`/api/loop/:nodeId/subgraph`、`/api/workflow?expandLoop=`）
+- [x] UI Session 下拉列表（历史会话、重跑按钮）
+- [x] UI 节点详情面板（定义/状态/输入/输出/审计/Claude 对话）
+- [x] UI Loop 子图展开/收起（"sub"徽章、虚线边框）
+- [x] 条件分支边输入加载修复
+- [x] 示例工作流 `examples/complex-pipeline.json` 添加 Loop 节点
+
+**新增文件**:
+- `examples/scripts/complex/validate-data.sh` - 校验脚本
+- `examples/scripts/complex/fix-data.sh` - 修复脚本
+
+**修改文件**:
+- `src/types.ts` - 新增 `SessionSummary` 接口
+- `src/utils/GlobalContext.ts` - 新增 `sessionHistory` 和目录路径字段
+- `src/cli.ts` - 新增 API 端点、Session 记录、条件边输入修复
+- `src/web/index.html` - UI 全面增强（Session 管理/节点详情/Loop 子图）
+
+### 技术决策
+
+#### 决策 7: Session 历史内存存储（v0.6.1）
+
+**日期**: 2026-04-23
+
+**决策**: Session 历史存储在 `GlobalContext.sessionHistory` 数组中，服务重启后丢失
+
+**理由**:
+- 简化实现，无需额外的持久化层
+- 适合临时开发和测试场景
+- 如需持久化可扩展为 SQLite/文件存储
+
+#### 决策 8: Loop 子图展开采用前端合并（v0.6.1）
+
+**日期**: 2026-04-23
+
+**决策**: `/api/workflow?expandLoop=` 在后端合并父图和子图，前端直接渲染
+
+**理由**:
+- 前端 Cytoscape.js 只需处理单一图结构
+- 后端合并逻辑与 LoopNode 执行时的合并逻辑一致
+- 支持一键收起恢复原始视图
+
+### 已知问题（更新）
+
+1. **CLI 版本号**: `cli.ts` 中 `.version('0.1.0')` 与 `package.json` 的 `0.6.0` 不同步
+2. **测试源码缺失**: `test/` 目录不存在，仅有 `dist/test/*.js` 编译产物
+3. **条件求值安全**: 使用 `new Function('outputs', ...)` 动态编译表达式，存在注入风险
+4. **Session 持久化**: 当前 Session 历史存储在内存中，服务重启后丢失（v0.6.1）
