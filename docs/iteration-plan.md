@@ -207,3 +207,37 @@ ORC (Orchestration Runner) - JSON 驱动的任务编排工具
 2. **测试源码缺失**: `test/` 目录不存在，仅有 `dist/test/*.js` 编译产物
 3. **条件求值安全**: 使用 `new Function('outputs', ...)` 动态编译表达式，存在注入风险
 4. **Session 持久化**: 当前 Session 历史存储在内存中，服务重启后丢失（v0.6.1）
+
+### v0.7.0 - 前后端分离 (2026-04-25) ✅
+
+**目标**: 将单体 Web UI 重构为 React 前端 + Express 后端
+
+- [x] 前端: React 18 + Vite + MUI + Cytoscape.js（`frontend/` 目录）
+- [x] 后端: Express REST API（`src/server/` 目录，`/api/v1/` 前缀）
+- [x] 旧 `src/web/index.html` 删除
+- [x] CLI serve 命令改为启动 Express server
+- [x] Vite dev server (5173) 代理 API 到 Express (3000)
+- [x] 标准 RESTful API（sessions/nodes/workflows/loops 资源）
+- [x] MUI 深色主题匹配原有配色
+
+**新增文件**:
+- `frontend/` - React 应用（App/Components/Hooks/API/Theme）
+- `src/server/server.ts` - Express 入口
+- `src/server/routes/` - 路由层（sessions/workflow/nodes/loop）
+
+### v0.7.1 - Bug 修复 (2026-04-29) ✅
+
+- [x] `workflowDir` 未正确传递：`sessions.ts` 用 `process.cwd()` 而非 `GLOBAL_CONTEXT.workflowDir` → 导致 `schemaBaseDir` 相对路径解析失败
+- [x] tsx dev 模式下 Worker 创建崩溃：`ClaudeExporterWorker.js` 不在磁盘上 → 新增 `resolveWorkerPath()` 回退 `.ts`，通过 `execArgv` 继承 tsx loader
+- [x] `CLAUDECODE` 环境变量阻止嵌套运行：前端 API 触发时继承 Claude Code 进程环境 → 显式 `unset CLAUDECODE`
+
+### v0.7.2 - 节点状态可视化修复 (2026-04-29) ✅
+
+- [x] Cytoscape 节点状态颜色不更新 → `node.data('status', status).updateStyle()` 主动通知渲染器
+- [x] `onNodeClick` inline function 导致 GraphPanel useEffect 频繁重建 → 改用 `useCallback` 保持引用稳定
+- [x] 移除调试 console.log
+
+**修改文件**:
+- `frontend/src/components/GraphPanel.tsx` - `updateNodeStatus` 简化为一行
+- `frontend/src/App.tsx` - `handleNodeClick` 用 `useCallback` 包装
+- `frontend/src/hooks/useSessionPolling.ts` - 移除调试日志

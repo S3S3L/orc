@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('orc')
   .description('Orchestration Runner - JSON-driven task orchestration tool')
-  .version('0.1.0');
+  .version('0.7.2');
 
 program
   .command('run <workflow>')
@@ -28,14 +28,12 @@ program
   .option('-c, --cleanOldFiles', 'Clean old files in output directory before execution', false)
   .action(async (workflowPath: string, options) => {
     try {
-      // Load workflow
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
       const workflow: WorkflowDefinition = JSON.parse(workflowContent);
 
       const workflowDir = path.dirname(path.resolve(workflowPath));
       const sessionId = options.sessionId;
 
-      // Set execution state (shares the same state shape as serve)
       GLOBAL_CONTEXT.executionStates.set(sessionId, {
         status: 'running',
         logs: [],
@@ -43,7 +41,6 @@ program
         complete: false
       });
 
-      // Execute workflow
       await runWorkflow(workflow, options, sessionId, workflowDir, options.cleanOldFiles || false, options.nodeId, options.single);
 
       const state = GLOBAL_CONTEXT.executionStates.get(sessionId);
@@ -88,474 +85,24 @@ program
   .option('-w, --workspace <dir>', 'Workspace directory', './workspace')
   .option('--audit <dir>', 'Audit log directory', './audit')
   .action(async (workflowPath: string | undefined, options) => {
-    const http = await import('http');
+    const { startServer } = await import('./server/server.js');
 
-    let workflowDir = process.cwd();
     if (workflowPath) {
       const workflowContent = await fs.readFile(workflowPath, 'utf-8');
       GLOBAL_CONTEXT.lastWorkflow = JSON.parse(workflowContent);
-      workflowDir = path.resolve(path.dirname(workflowPath));
     }
 
-    // Store directory paths in GlobalContext for node detail API
     GLOBAL_CONTEXT.outputDir = path.resolve(options.output);
     GLOBAL_CONTEXT.auditDir = path.resolve(options.audit);
     GLOBAL_CONTEXT.workspaceDir = path.resolve(options.workspace);
     await GLOBAL_CONTEXT.setStorePath(GLOBAL_CONTEXT.outputDir);
 
-    const { lastWorkflow, executionStates, executions } = GLOBAL_CONTEXT;
-
-    const webDir = path.join(__dirname, 'web');
-    const indexHtml = await fs.readFile(path.join(webDir, 'index.html'), 'utf-8');
-
-    const server = http.createServer(async (req, res) => {
-      const url = new URL(req.url || '/', `http://localhost:${options.port}`);
-
-      // CORS headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
-      res.setHeader('Content-Type', 'application/json');
-
-      if (url.pathname === '/' || url.pathname === '/index.html') {
-        res.setHeader('Content-Type', 'text/html');
-        res.end(indexHtml);
-        return;
-      }
-
-      if (url.pathname === '/api/workflow' && req.method === 'GET') {
-        if (!lastWorkflow) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'No workflow loaded' }));
-          return;
-        }
-
-        // Support expandLoop query param to inline Loop subgraph
-        const expandLoopId = url.searchParams.get('expandLoop');
-        if (expandLoopId) {
-          const loopNode = lastWorkflow.nodes.find(n => n.id === expandLoopId);
-          if (!loopNode || loopNode.type !== 'loop') {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: `Loop node ${expandLoopId} not found` }));
-            return;
-          }
-          const loopConfig = loopNode.config as any;
-          const subGraph = loopConfig?.subGraph;
-          if (!subGraph) {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: `Loop node ${expandLoopId} has no subGraph` }));
-            return;
-          }
-
-          // Build expanded workflow: replace loop node with subgraph nodes, adjust edges
-          const expandedNodes = lastWorkflow.nodes.filter(n => n.id !== expandLoopId);
-          const subNodes = subGraph.nodes || [];
-          const subEdges = subGraph.edges || [];
-
-          // Redirect parent edges targeting the loop node to subgraph root nodes
-          const subRoots = subNodes.filter((n: any) => !subEdges.some((e: any) => e.to?.nodeId === n.id));
-          const allExpandedNodes = [...expandedNodes, ...subNodes];
-
-          // Build expanded edges: replace loop node references in parent edges with subgraph root
-          const expandedEdges = lastWorkflow.edges
-            .filter(e => e.from.nodeId !== expandLoopId)  // Remove edges from loop node
-            .map(e => {
-              if (e.to?.nodeId === expandLoopId) {
-                // Redirect to first subgraph root (default target)
-                return { ...e, to: subRoots[0] ? { nodeId: subRoots[0].id, input: e.to.input } : undefined };
-              }
-              if (e.condition?.branches) {
-                const newBranches = e.condition.branches.map(b => {
-                  if (b.to.nodeId === expandLoopId) {
-                    return subRoots[0] ? { ...b, to: { nodeId: subRoots[0].id, input: b.to.input } } : { ...b };
-                  }
-                  return b;
-                });
-                return { ...e, condition: { ...e.condition, branches: newBranches } };
-              }
-              return e;
-            })
-            .filter(Boolean);
-
-          const expanded = {
-            ...lastWorkflow,
-            nodes: allExpandedNodes,
-            edges: [...expandedEdges, ...subEdges]
-          };
-          res.end(JSON.stringify(expanded));
-          return;
-        }
-
-        res.end(JSON.stringify(lastWorkflow));
-        return;
-      }
-
-      // GET /api/loop/:nodeId/subgraph
-      if (url.pathname.match(/^\/api\/loop\/[^/]+\/subgraph$/) && req.method === 'GET') {
-        const match = url.pathname.match(/^\/api\/loop\/([^/]+)\/subgraph$/);
-        const nodeId = match?.[1];
-        if (!nodeId) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: 'Missing node ID' }));
-          return;
-        }
-
-        const loopNode = lastWorkflow?.nodes.find(n => n.id === nodeId);
-        if (!loopNode) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: `Node ${nodeId} not found` }));
-          return;
-        }
-
-        if (loopNode.type !== 'loop') {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: `Node ${nodeId} is not a loop node` }));
-          return;
-        }
-
-        const loopConfig = loopNode.config as any;
-        const subGraph = loopConfig?.subGraph;
-        if (!subGraph) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: `Node ${nodeId} has no subGraph` }));
-          return;
-        }
-
-        // Return subgraph with parent context for full rendering
-        res.end(JSON.stringify({
-          nodeId,
-          subGraph: {
-            nodes: subGraph.nodes || [],
-            edges: subGraph.edges || [],
-            schemas: subGraph.schemas || {}
-          },
-          maxAttempts: loopConfig.maxAttempts,
-          validator: loopConfig.validator
-        }));
-        return;
-      }
-
-      // /api/run?sessionId=xxx POST
-      if (url.pathname === '/api/run' && req.method === 'POST') {
-        if (!lastWorkflow) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'No workflow loaded' }));
-          return;
-        }
-
-        const sessionId = startWorkflowExecution(
-          lastWorkflow,
-          options,
-          workflowDir,
-          url.searchParams.get('cleanOldFiles') === 'true',  // Control cleanOldFiles via query param
-          url.searchParams.get('sessionId') || undefined
-        );
-
-        res.end(JSON.stringify({ sessionId }));
-        return;
-      }
-
-      if (url.pathname === '/api/node/run' && req.method === 'POST') {
-        if (!lastWorkflow) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'No workflow loaded' }));
-          return;
-        }
-
-        const nodeId = url.searchParams.get('nodeId') || undefined;
-        const sessionId = url.searchParams.get('sessionId') || undefined;
-        const isSingle = url.searchParams.get('single') === 'true';
-
-        // For single node execution, delete existing output to force re-run
-        if (isSingle && nodeId && sessionId) {
-          const outputFilePath = path.join(GLOBAL_CONTEXT.outputDir!, sessionId, `${nodeId}.json`);
-          try {
-            await fs.rm(outputFilePath, { force: true });
-          } catch { /* ignore */ }
-        }
-
-        startWorkflowExecution(
-          lastWorkflow,
-          options,
-          workflowDir,
-          false,
-          sessionId,
-          nodeId,
-          isSingle,
-        );
-
-        res.end(JSON.stringify({ sessionId }));
-        return;
-      }
-
-      if (url.pathname.startsWith('/api/status/') && req.method === 'GET') {
-        const sessionId = url.pathname.replace('/api/status/', '');
-        const state = executionStates.get(sessionId);
-
-        if (!state) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'Session not found' }));
-          return;
-        }
-
-        res.end(JSON.stringify({
-          ...state,
-          nodes: [...executions.get(sessionId)?.getNodes().values() || []].map((node) => ({
-            definition: node.definition,
-            status: node.status
-          }))
-        }));
-        return;
-      }
-
-      // GET /api/sessions
-      if (url.pathname === '/api/sessions' && req.method === 'GET') {
-        res.end(JSON.stringify(GLOBAL_CONTEXT.sessionHistory));
-        return;
-      }
-
-      // GET /api/session/:sessionId/status
-      if (url.pathname.match(/^\/api\/session\/[^/]+\/status$/) && req.method === 'GET') {
-        const sessionId = url.pathname.replace('/api/session/', '').replace('/status', '');
-        // Check active execution state first
-        const activeState = executionStates.get(sessionId);
-        if (activeState) {
-          const executor = executions.get(sessionId);
-          res.end(JSON.stringify({
-            ...activeState,
-            nodes: [...(executor?.getNodes().values() || [])].map(n => ({
-              definition: n.definition,
-              status: n.status
-            }))
-          }));
-          return;
-        }
-        // Fall back to persisted session data
-        const session = GLOBAL_CONTEXT.sessionHistory.find(s => s.id === sessionId);
-        if (session) {
-          res.end(JSON.stringify({
-            status: session.status,
-            nodeStatuses: session.nodeStatuses || null,
-            startTime: session.startTime,
-            endTime: session.endTime
-          }));
-          return;
-        }
-        res.statusCode = 404;
-        res.end(JSON.stringify({ error: 'Session not found' }));
-        return;
-      }
-
-      // POST /api/rerun?sessionId=xxx
-      if (url.pathname === '/api/rerun' && req.method === 'POST') {
-        if (!lastWorkflow) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'No workflow loaded' }));
-          return;
-        }
-
-        const oldSessionId = url.searchParams.get('sessionId') || undefined;
-
-        // Clean old output files for the session being rerun
-        if (oldSessionId) {
-          const sessionOutputDir = path.join(GLOBAL_CONTEXT.outputDir!, oldSessionId);
-          try {
-            await fs.rm(sessionOutputDir, { recursive: true, force: true });
-          } catch { /* ignore */ }
-        }
-
-        const sessionId = startWorkflowExecution(
-          lastWorkflow,
-          options,
-          workflowDir,
-          true,  // cleanOldFiles for rerun
-          undefined,  // generate new sessionId
-          undefined,  // startNodeId
-          false     // single
-        );
-
-        res.end(JSON.stringify({ sessionId }));
-        return;
-      }
-
-      // GET /api/node/:nodeId?sessionId=xxx
-      if (url.pathname.match(/^\/api\/node\/[^/]+$/) && req.method === 'GET') {
-        const nodeId = url.pathname.replace('/api/node/', '');
-        const sessionId = url.searchParams.get('sessionId') || '';
-
-        if (!GLOBAL_CONTEXT.outputDir || !GLOBAL_CONTEXT.auditDir) {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: 'Directory paths not configured' }));
-          return;
-        }
-
-        // Find node definition
-        const nodeDef = lastWorkflow?.nodes.find(n => n.id === nodeId);
-        if (!nodeDef) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: `Node ${nodeId} not found` }));
-          return;
-        }
-
-        // Get node status from execution state
-        const state = executionStates.get(sessionId);
-        const executor = executions.get(sessionId);
-        const nodeInstance = executor?.getNodes().get(nodeId);
-        const status = nodeInstance?.status || 'pending';
-
-        // Load output from file
-        let output = null;
-        try {
-          const outputFilePath = path.join(GLOBAL_CONTEXT.outputDir, sessionId, `${nodeId}.json`);
-          const outputContent = await fs.readFile(outputFilePath, 'utf-8');
-          output = JSON.parse(outputContent);
-        } catch {
-          // Output not available
-        }
-
-        // Load inputs from upstream node outputs (both default edges and conditional branches)
-        const inputs: Record<string, any> = {};
-        const allEdges = lastWorkflow?.edges || [];
-
-        for (const edge of allEdges) {
-          // Check default edge
-          if (edge.to?.nodeId === nodeId) {
-            try {
-              const upstreamOutputPath = path.join(GLOBAL_CONTEXT.outputDir, sessionId, `${edge.from.nodeId}.json`);
-              const upstreamContent = await fs.readFile(upstreamOutputPath, 'utf-8');
-              inputs[edge.to.input] = JSON.parse(upstreamContent);
-            } catch { /* upstream output not available */ }
-          }
-          // Check conditional branch edges
-          if (edge.condition?.branches) {
-            for (const branch of edge.condition.branches) {
-              if (branch.to.nodeId === nodeId) {
-                try {
-                  const upstreamOutputPath = path.join(GLOBAL_CONTEXT.outputDir, sessionId, `${edge.from.nodeId}.json`);
-                  const upstreamContent = await fs.readFile(upstreamOutputPath, 'utf-8');
-                  inputs[branch.to.input] = JSON.parse(upstreamContent);
-                } catch { /* upstream output not available */ }
-              }
-            }
-          }
-        }
-
-        // Load audit entries
-        let audit = null;
-        let claudeMessages = null;
-        try {
-          const auditFiles = await fs.readdir(GLOBAL_CONTEXT.auditDir);
-          const nodeAuditFiles = auditFiles.filter(f => f.startsWith(nodeId + '-') && f.endsWith('.json'));
-
-          if (nodeAuditFiles.length > 0) {
-            // Sort by timestamp, get the latest one for this session
-            const sessionAuditFiles = nodeAuditFiles.filter(f => f.includes(sessionId) || f.startsWith(nodeId));
-            const latestFile = sessionAuditFiles.sort().pop() || nodeAuditFiles.sort().pop();
-            if (latestFile) {
-              const auditContent = await fs.readFile(
-                path.join(GLOBAL_CONTEXT.auditDir, latestFile),
-                'utf-8'
-              );
-              audit = JSON.parse(auditContent);
-            }
-          }
-        } catch {
-          // Audit not available
-        }
-
-        // For Claude Code nodes, load conversation messages and check for HTML export
-        let claudeHtmlUrl = null;
-        if (nodeDef.type === 'claude-code' && sessionId) {
-          try {
-            const auditFiles = await fs.readdir(GLOBAL_CONTEXT.auditDir);
-            const messageFiles = auditFiles.filter(f =>
-              f.includes(sessionId) && f.includes(nodeId) && f.endsWith('-messages.json')
-            );
-            if (messageFiles.length > 0) {
-              const latestMsg = messageFiles.sort().pop();
-              if (latestMsg) {
-                const msgContent = await fs.readFile(
-                  path.join(GLOBAL_CONTEXT.auditDir, latestMsg),
-                  'utf-8'
-                );
-                claudeMessages = JSON.parse(msgContent);
-              }
-            }
-          } catch {
-            // Messages not available
-          }
-
-          // Check if HTML export file exists
-          try {
-            const htmlDir = path.join(GLOBAL_CONTEXT.outputDir, sessionId);
-            const htmlFiles = (await fs.readdir(htmlDir)).filter(f =>
-              f.startsWith('claude_code_') && f.endsWith(`_${nodeId}.html`)
-            );
-            if (htmlFiles.length > 0) {
-              const latestHtml = htmlFiles.sort().pop();
-              if (latestHtml) {
-                claudeHtmlUrl = `/api/node/${nodeId}/claude-html?sessionId=${sessionId}`;
-              }
-            }
-          } catch {
-            // HTML export not available
-          }
-        }
-
-        res.end(JSON.stringify({
-          definition: nodeDef,
-          status,
-          inputs: Object.keys(inputs).length > 0 ? inputs : null,
-          output,
-          audit,
-          claudeMessages,
-          claudeHtmlUrl
-        }));
-        return;
-      }
-
-      // GET /api/node/:nodeId/claude-html?sessionId=xxx
-      if (url.pathname.match(/^\/api\/node\/[^/]+\/claude-html$/) && req.method === 'GET') {
-        const nodeId = url.pathname.replace('/api/node/', '').replace('/claude-html', '');
-        const sessionId = url.searchParams.get('sessionId') || '';
-
-        if (!GLOBAL_CONTEXT.outputDir) {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: 'Output directory not configured' }));
-          return;
-        }
-
-        try {
-          const htmlDir = path.join(GLOBAL_CONTEXT.outputDir, sessionId);
-          const htmlFiles = (await fs.readdir(htmlDir)).filter(f =>
-            f.startsWith('claude_code_') && f.endsWith(`_${nodeId}.html`)
-          );
-          if (htmlFiles.length === 0) {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: 'HTML export not found' }));
-            return;
-          }
-          const latestHtml = htmlFiles.sort().pop()!;
-          const htmlContent = await fs.readFile(path.join(htmlDir, latestHtml), 'utf-8');
-          res.setHeader('Content-Type', 'text/html; charset=utf-8');
-          res.end(htmlContent);
-          return;
-        } catch {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: 'Failed to read HTML export' }));
-          return;
-        }
-      }
-
-      res.statusCode = 404;
-      res.end(JSON.stringify({ error: 'Not found' }));
-    });
-
-    server.listen(options.port, options.host, () => {
-      const displayHost = options.host === '0.0.0.0' ? '0.0.0.0' : options.host;
-      console.log(`ORC Web UI started at http://${displayHost}:${options.port}`);
-      console.log(`Access via: http://localhost:${options.port}`);
-      console.log(`Loaded workflow: ${workflowPath || 'none'}`);
-      console.log('Press Ctrl+C to stop');
+    await startServer(workflowPath, {
+      port: parseInt(options.port),
+      host: options.host,
+      outputDir: GLOBAL_CONTEXT.outputDir,
+      auditDir: GLOBAL_CONTEXT.auditDir,
+      workspaceDir: GLOBAL_CONTEXT.workspaceDir,
     });
   });
 
@@ -568,7 +115,6 @@ async function runWorkflow(
   startNodeId?: string,
   single?: boolean
 ) {
-  // Initialize directories
   const outputDir = path.resolve(options.output);
   const auditDir = path.resolve(options.audit);
   const tempBaseDir = path.resolve(options.workspace);
@@ -589,17 +135,13 @@ async function runWorkflow(
     sessionId,
     nodeOutputs: new Map(),
     auditLog: [],
-    debug: {
-      startNodeId,
-      single
-    },
+    debug: { startNodeId, single },
     cleanOldFiles
   };
 
   const executor = new Executor(graph, context);
   executions.set(sessionId, executor);
 
-  // Get state reference and ensure it exists
   let state = executionStates.get(sessionId);
   if (!state) {
     console.error(`[${new Date().toISOString()}] [${sessionId}] State not found`);
@@ -614,7 +156,6 @@ async function runWorkflow(
   console.log(`[${ts()}] [${sessionId}] -------------------`);
 
   try {
-
     await executor.execute(context, state);
 
     state.status = 'complete';
@@ -643,10 +184,8 @@ function startWorkflowExecution(
   single?: boolean
 ) {
   const sessionId = requestedSessionId || uuidv4();
-
   const { executionStates, executions } = GLOBAL_CONTEXT;
 
-  // Check if this is a reuse of an existing session (e.g., single node run in current session)
   const isReusedSession = !!(requestedSessionId && executionStates.has(requestedSessionId));
 
   let state = executionStates.get(sessionId);
@@ -660,14 +199,12 @@ function startWorkflowExecution(
     };
     executionStates.set(sessionId, state);
   } else if (!isReusedSession) {
-    // Only reset state for full reruns, not for single node additions
     state.status = 'running';
     state.logs.push(`Workflow resumed: ${sessionId}`);
     state.startTime = Date.now();
     state.complete = false;
   }
 
-  // Record session history (only for new sessions, not for reused ones)
   if (!isReusedSession) {
     const summary: SessionSummary = {
       id: sessionId,
@@ -681,7 +218,7 @@ function startWorkflowExecution(
 
   void runWorkflow(workflow, options, sessionId, workflowDir, cleanOldFiles, startNodeId, single)
     .then(async () => {
-      if (isReusedSession) return;  // Don't override state for single-node-in-session
+      if (isReusedSession) return;
       const currentState = executionStates.get(sessionId);
       if (currentState) {
         currentState.status = 'complete';
@@ -691,7 +228,6 @@ function startWorkflowExecution(
       if (s) {
         s.status = 'complete';
         s.endTime = Date.now();
-        // Capture node statuses from executor
         const executor = executions.get(sessionId);
         if (executor) {
           s.nodeStatuses = {};
@@ -703,7 +239,7 @@ function startWorkflowExecution(
       await GLOBAL_CONTEXT.saveSessions();
     })
     .catch(async (err) => {
-      if (isReusedSession) return;  // Don't override state for single-node-in-session
+      if (isReusedSession) return;
       const currentState = executionStates.get(sessionId);
       if (currentState) {
         currentState.status = 'error';
@@ -714,7 +250,6 @@ function startWorkflowExecution(
       if (s) {
         s.status = 'error';
         s.endTime = Date.now();
-        // Capture partial node statuses from executor
         const executor = executions.get(sessionId);
         if (executor) {
           s.nodeStatuses = {};

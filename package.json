@@ -1,6 +1,6 @@
 {
   "name": "orc",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "JSON-driven task orchestration tool",
   "main": "dist/src/cli.js",
   "bin": {
