@@ -13,6 +13,7 @@ class GlobalContext {
     outputDir: string | null = null;
     auditDir: string | null = null;
     workspaceDir: string | null = null;
+    workflowDir: string | null = null;
 
     // Session history (sorted by startTime desc)
     sessionHistory: SessionSummary[] = [];

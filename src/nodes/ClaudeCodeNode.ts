@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import Handlebars from 'handlebars';
 import { readFileSync } from 'fs';
@@ -9,6 +10,34 @@ import type { NodeExecutor } from '../core/Executor.js';
 import { Worker } from 'worker_threads';
 
 var CLAUDE_EXPORT_WORKER: Worker | null = null;
+
+function resolveWorkerPath(): { filePath: string; isTsx: boolean } | null {
+  // __dirname is reliable: in compiled mode it's dist/src/nodes, in tsx it's src/nodes
+  const workerDir = path.resolve(__dirname, '../tools');
+  const jsPath = path.join(workerDir, 'ClaudeExporterWorker.js');
+  if (existsSync(jsPath)) return { filePath: jsPath, isTsx: false };
+  // tsx dev mode: .js not on disk, fall back to .ts source
+  const tsPath = path.join(workerDir, 'ClaudeExporterWorker.ts');
+  if (existsSync(tsPath)) return { filePath: tsPath, isTsx: true };
+  return null;
+}
+
+function getTsxExecArgv(): string[] {
+  const argv = process.execArgv;
+  const result: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--eval') { i++; continue; }
+    if (argv[i] === '--require' || argv[i] === '--import') {
+      result.push(argv[i]);
+      if (i + 1 < argv.length) { i++; result.push(argv[i]); }
+      continue;
+    }
+    if (argv[i].includes('tsx')) {
+      result.push(argv[i]);
+    }
+  }
+  return result;
+}
 
 export class ClaudeCodeNode implements NodeExecutor {
   async execute(
@@ -37,15 +66,28 @@ export class ClaudeCodeNode implements NodeExecutor {
 
   private registerSessionToWorker(workDir: string, node: NodeDefinition, claudeCodeSessionId: string, context: ExecutionContext) {
     if (CLAUDE_EXPORT_WORKER === null) {
-      CLAUDE_EXPORT_WORKER = new Worker(path.join(__dirname, '../tools/ClaudeExporterWorker.js'), {
-        workerData: {
-          workdir: workDir,
-          cleanOldFiles: context.cleanOldFiles,
-        },
+      const resolved = resolveWorkerPath();
+      if (!resolved) return;
+      // Defer worker creation to avoid blocking main thread execution
+      setImmediate(() => {
+        try {
+          CLAUDE_EXPORT_WORKER = new Worker(resolved!.filePath, {
+            execArgv: resolved!.isTsx ? getTsxExecArgv() : [],
+            workerData: {
+              workdir: workDir,
+              cleanOldFiles: context.cleanOldFiles,
+            },
+          });
+          CLAUDE_EXPORT_WORKER!.on('error', () => {});
+        } catch (e) {
+          // Worker creation failed (e.g., tsx loader incompatibility in worker threads)
+          CLAUDE_EXPORT_WORKER = null;
+          console.error('[Worker] Failed to create:', e instanceof Error ? e.message : e);
+        }
       });
     }
 
-    CLAUDE_EXPORT_WORKER.postMessage({
+    CLAUDE_EXPORT_WORKER?.postMessage({
       type: 'add',
       nodeId: node.id,
       sessionId: claudeCodeSessionId,
@@ -78,18 +120,23 @@ export class ClaudeCodeNode implements NodeExecutor {
         args.push('--session-id', claudeCodeSessionId); // Pass sessionId for audit correlation
       }
 
+      const claudeEnv: Record<string, string | undefined> = {
+        ...process.env,
+        WORKFLOW_HOME: context.workflowDir,
+        WORKSPACE_DIR: path.join(context.outputDir, context.sessionId),
+        CLAUDE_PLUGIN_ROOT: context.workflowDir,
+        // Unset CLAUDECODE to prevent claude from refusing to run inside a nested session
+        CLAUDECODE: undefined,
+      };
+
       const result = await execa('claude', args, {
         cwd: workDir,
         timeout: config.timeout ?? 300000,
         all: true,
         reject: false,
         buffer: true,
-        stdin: 'ignore', // Ignore stdin to avoid warnings
-        env: {
-          WORKFLOW_HOME: context.workflowDir,
-          WORKSPACE_DIR: path.join(context.outputDir, context.sessionId),
-          CLAUDE_PLUGIN_ROOT: context.workflowDir,
-        }
+        stdin: 'ignore',
+        env: claudeEnv as Record<string, string>,
       });
 
       // Read output. With --output-format json, stdout is already JSON.
