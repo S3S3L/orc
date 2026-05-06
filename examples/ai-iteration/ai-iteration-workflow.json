@@ -1,0 +1,432 @@
+{
+  "version": "1.0",
+  "name": "AI 驱动迭代工作流",
+  "description": "从思维导图和项目分析出发，自动生成迭代计划并依次执行迭代循环",
+  "schemaBaseDir": ["./schemas"],
+  "nodes": [
+    {
+      "id": "analyze-mindmap",
+      "type": "claude-code",
+      "name": "分析思维导图",
+      "description": "解析 xMind 思维导图文件，拆解功能点和模块",
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/analyze-mindmap.md"
+        },
+        "inputMapping": {
+          "mindmapFile": {
+            "target": "markdown",
+            "section": "MINDMAP_CONTENT"
+          }
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "analysis-result.json",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash", "Glob"]
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze-project",
+      "type": "claude-code",
+      "name": "分析项目情况",
+      "description": "分析现有项目的模块、功能点和代码风格",
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/analyze-project.md"
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "project-analysis.json",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash", "Glob", "Edit", "Write", "TodoRead", "TodoWrite"]
+          }
+        },
+        "retry": {
+          "maxAttempts": 2,
+          "backoff": "exponential",
+          "delayMs": 2000
+        }
+      }
+    },
+    {
+      "id": "update-memory",
+      "type": "claude-code",
+      "name": "更新记忆",
+      "description": "对比最新分析结果与现有记忆，更新记忆文件",
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/update-memory.md",
+          "template": true
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "memory-update-result.json",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+          }
+        }
+      }
+    },
+    {
+      "id": "create-iteration-plan",
+      "type": "claude-code",
+      "name": "形成迭代计划",
+      "description": "为未实现功能生成技术方案，按优先级形成迭代计划",
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/create-iteration-plan.md",
+          "template": true
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "iteration-plan.json",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+          }
+        },
+        "resume": {
+          "maxAttempts": 1,
+          "prompt": "输出缺少 iterationItems 或 items 为空，请重新生成完整的迭代计划",
+          "validator": "output.iterationItems && output.iterationItems.length > 0"
+        }
+      }
+    },
+    {
+      "id": "iteration-loop",
+      "type": "loop",
+      "name": "依次迭代",
+      "description": "按迭代计划逐一执行，每个迭代包含代码实现、测试、构建、验证和提交",
+      "config": {
+        "subGraph": {
+          "nodes": [
+            {
+              "id": "git-check",
+              "type": "bash",
+              "name": "Git 状态检查",
+              "description": "检查 git 状态，提交未提交代码，创建新的开发分支",
+              "config": {
+                "script": "./scripts/git-check.sh",
+                "argsPassing": { "type": "stdin" }
+              }
+            },
+            {
+              "id": "code-implement",
+              "type": "claude-code",
+              "name": "代码实现",
+              "description": "根据技术方案进行代码实现，遵循项目代码风格",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/code-implement.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "implementation-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit", "Write", "TodoRead", "TodoWrite"]
+                  }
+                },
+                "retry": {
+                  "maxAttempts": 2,
+                  "backoff": "exponential",
+                  "delayMs": 2000
+                }
+              }
+            },
+            {
+              "id": "unit-test",
+              "type": "claude-code",
+              "name": "单元测试",
+              "description": "编写并执行单元测试，修复直到通过",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/unit-test.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "test-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+                  }
+                },
+                "resume": {
+                  "maxAttempts": 2,
+                  "prompt": "单元测试未全部通过，请修复失败用例并重新执行",
+                  "validator": "output.allTestsPassed === true"
+                }
+              }
+            },
+            {
+              "id": "project-build",
+              "type": "claude-code",
+              "name": "项目构建",
+              "description": "重新构建项目，修复构建失败直到成功",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/project-build.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "build-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+                  }
+                },
+                "resume": {
+                  "maxAttempts": 2,
+                  "prompt": "构建失败，请根据错误信息修复并重新构建",
+                  "validator": "output.buildSuccess === true"
+                }
+              }
+            },
+            {
+              "id": "feature-verify",
+              "type": "claude-code",
+              "name": "功能验证",
+              "description": "验证实现的功能是否符合技术方案",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/feature-verify.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "verify-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit"]
+                  }
+                }
+              }
+            },
+            {
+              "id": "update-docs",
+              "type": "claude-code",
+              "name": "更新记忆和文档",
+              "description": "更新项目记忆和相关文档",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/update-docs.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "docs-update-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+                  }
+                }
+              }
+            },
+            {
+              "id": "git-commit",
+              "type": "bash",
+              "name": "Git 提交",
+              "description": "提交本次迭代的代码变更",
+              "config": {
+                "script": "./scripts/git-commit.sh",
+                "argsPassing": { "type": "stdin" }
+              }
+            },
+            {
+              "id": "update-plan",
+              "type": "claude-code",
+              "name": "更新迭代计划",
+              "description": "标记当前迭代项为已完成，更新迭代计划",
+              "config": {
+                "prompt": {
+                  "markdown": "./prompts/update-plan.md",
+                  "template": true
+                },
+                "execution": {
+                  "workDir": "{{nodeId}}",
+                  "outputFile": "plan-update-result.json",
+                  "audit": {
+                    "enabled": true,
+                    "logStdout": true,
+                    "logStderr": true,
+                    "saveMessages": true
+                  }
+                },
+                "capabilities": {
+                  "tools": {
+                    "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+                  }
+                }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "edge-check-to-implement",
+              "from": { "nodeId": "git-check" },
+              "to": { "nodeId": "code-implement", "input": "iterationItem" }
+            },
+            {
+              "id": "edge-implement-to-test",
+              "from": { "nodeId": "code-implement" },
+              "to": { "nodeId": "unit-test", "input": "implementationResult" }
+            },
+            {
+              "id": "edge-test-to-build",
+              "from": { "nodeId": "unit-test" },
+              "to": { "nodeId": "project-build", "input": "testResult" }
+            },
+            {
+              "id": "edge-build-to-verify",
+              "from": { "nodeId": "project-build" },
+              "to": { "nodeId": "feature-verify", "input": "buildResult" }
+            },
+            {
+              "id": "edge-verify-to-docs",
+              "from": { "nodeId": "feature-verify" },
+              "to": { "nodeId": "update-docs", "input": "verifyResult" }
+            },
+            {
+              "id": "edge-docs-to-commit",
+              "from": { "nodeId": "update-docs" },
+              "to": { "nodeId": "git-commit", "input": "docsResult" }
+            },
+            {
+              "id": "edge-commit-to-update-plan",
+              "from": { "nodeId": "git-commit" },
+              "to": { "nodeId": "update-plan", "input": "commitResult" }
+            }
+          ]
+        },
+        "maxAttempts": 20,
+        "validator": "outputs['update-plan']?.allItemsCompleted === true"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "claude-code",
+      "name": "总结",
+      "description": "对整个迭代过程进行总结",
+      "config": {
+        "prompt": {
+          "markdown": "./prompts/summary.md",
+          "template": true
+        },
+        "execution": {
+          "workDir": "{{nodeId}}",
+          "outputFile": "iteration-summary.md",
+          "audit": {
+            "enabled": true,
+            "logStdout": true,
+            "logStderr": true,
+            "saveMessages": true
+          }
+        },
+        "capabilities": {
+          "tools": {
+            "allowed": ["Read", "Bash", "Glob", "Edit", "Write"]
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-mindmap-to-memory",
+      "from": { "nodeId": "analyze-mindmap" },
+      "to": { "nodeId": "update-memory", "input": "mindmapAnalysis" }
+    },
+    {
+      "id": "edge-project-to-memory",
+      "from": { "nodeId": "analyze-project" },
+      "to": { "nodeId": "update-memory", "input": "projectAnalysis" }
+    },
+    {
+      "id": "edge-memory-to-plan",
+      "from": { "nodeId": "update-memory" },
+      "to": { "nodeId": "create-iteration-plan", "input": "memoryUpdate" }
+    },
+    {
+      "id": "edge-plan-to-loop",
+      "from": { "nodeId": "create-iteration-plan" },
+      "to": { "nodeId": "iteration-loop", "input": "iterationPlan" }
+    },
+    {
+      "id": "edge-loop-to-summary",
+      "from": { "nodeId": "iteration-loop" },
+      "to": { "nodeId": "summary", "input": "loopResults" }
+    }
+  ]
+}
