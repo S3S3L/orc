@@ -1,0 +1,15 @@
+orc:
+  output-dir: ./output
+  audit-dir: ./audit
+  workspace-dir: ./workspace
+
+server:
+  port: 30080
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+  shell:
+    interactive:
+      enabled: false
