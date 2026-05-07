@@ -4,22 +4,21 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orc.core.WorkflowGraph;
 import com.orc.model.WorkflowDefinition;
 import com.orc.schema.SchemaValidator;
-import org.springframework.shell.command.annotation.Command;
-import org.springframework.shell.command.annotation.Option;
-import org.springframework.stereotype.Component;
+import org.springframework.shell.standard.ShellComponent;
+import org.springframework.shell.standard.ShellMethod;
+import org.springframework.shell.standard.ShellOption;
 
 import java.io.File;
 import java.util.List;
 
-@Component
-@Command(command = "orc")
+@ShellComponent
 public class ValidateCommand {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Command(command = "validate", description = "Validate a workflow definition")
+    @ShellMethod(key = "validate", value = "Validate a workflow definition")
     public String validate(
-            @Option(longNames = {"workflow"}, description = "Workflow file path") String workflowPath
+            @ShellOption(value = {"--workflow"}, help = "Workflow file path") String workflowPath
     ) throws Exception {
         File workflowFile = new File(workflowPath);
         WorkflowDefinition workflow = objectMapper.readValue(workflowFile, WorkflowDefinition.class);
@@ -33,7 +32,7 @@ public class ValidateCommand {
         System.out.println("Workflow is valid");
         System.out.println("  Nodes: " + graph.size());
         List<String> order = graph.getExecutionOrder();
-        System.out.println("  Execution order: " + String.join(" → ", order));
+        System.out.println("  Execution order: " + String.join(" -> ", order));
 
         return "Workflow is valid";
     }

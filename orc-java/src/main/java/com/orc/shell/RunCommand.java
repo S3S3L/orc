@@ -7,17 +7,14 @@ import com.orc.model.ExecutionContext;
 import com.orc.model.ExecutionState;
 import com.orc.model.WorkflowDefinition;
 import com.orc.server.GlobalContext;
-import org.jline.utils.InfoCmp.Capability;
-import org.springframework.shell.command.annotation.Command;
-import org.springframework.shell.command.annotation.Option;
-import org.springframework.stereotype.Component;
+import org.springframework.shell.standard.ShellComponent;
+import org.springframework.shell.standard.ShellMethod;
+import org.springframework.shell.standard.ShellOption;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.util.UUID;
 
-@Component
-@Command(command = "orc")
+@ShellComponent
 public class RunCommand {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -27,22 +24,22 @@ public class RunCommand {
         this.globalContext = globalContext;
     }
 
-    @Command(command = "run", description = "Run a workflow")
+    @ShellMethod(key = "run", value = "Run a workflow")
     public String run(
-            @Option(longNames = {"workflow"}, description = "Workflow file path") String workflowPath,
-            @Option(longNames = {"output"}, description = "Output directory", defaultValue = "./output") String outputDir,
-            @Option(longNames = {"sessionId"}, description = "Session ID", defaultValue = "") String sessionId,
-            @Option(longNames = {"single"}, description = "Single node execution", defaultValue = "false") boolean single,
-            @Option(longNames = {"nodeId"}, description = "Node ID for startFrom", defaultValue = "") String nodeId,
-            @Option(longNames = {"workspace"}, description = "Workspace directory", defaultValue = "./workspace") String workspaceDir,
-            @Option(longNames = {"audit"}, description = "Audit log directory", defaultValue = "./audit") String auditDir,
-            @Option(longNames = {"cleanOldFiles"}, description = "Clean old files", defaultValue = "false") boolean cleanOldFiles
+            @ShellOption(value = {"--workflow"}, help = "Workflow file path") String workflowPath,
+            @ShellOption(value = {"--output"}, defaultValue = "./output") String outputDir,
+            @ShellOption(value = {"--sessionId"}, defaultValue = ShellOption.NULL) String sessionId,
+            @ShellOption(value = {"--single"}, defaultValue = "false") boolean single,
+            @ShellOption(value = {"--nodeId"}, defaultValue = ShellOption.NULL) String nodeId,
+            @ShellOption(value = {"--workspace"}, defaultValue = "./workspace") String workspaceDir,
+            @ShellOption(value = {"--audit"}, defaultValue = "./audit") String auditDir,
+            @ShellOption(value = {"--cleanOldFiles"}, defaultValue = "false") boolean cleanOldFiles
     ) throws Exception {
         File workflowFile = new File(workflowPath);
         WorkflowDefinition workflow = objectMapper.readValue(workflowFile, WorkflowDefinition.class);
 
         String wfDir = workflowFile.getParentFile().getAbsolutePath();
-        String sid = sessionId.isEmpty() ? UUID.randomUUID().toString() : sessionId;
+        String sid = sessionId != null ? sessionId : UUID.randomUUID().toString();
 
         File output = new File(outputDir);
         output.mkdirs();

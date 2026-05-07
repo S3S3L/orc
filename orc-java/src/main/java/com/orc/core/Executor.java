@@ -257,10 +257,72 @@ public class Executor {
 
     @SuppressWarnings("unchecked")
     private void triggerDownstreamNodes(String nodeId, ExecutionContext context, ExecutionState state) {
-        List<String> downstreamNodes = graph.getDirectDownstreamNodes(nodeId);
-        if (downstreamNodes.isEmpty()) return;
+        WorkflowDefinition wfDef = context.workflowDef();
+        List<String> toTrigger = new ArrayList<>();
+        Set<String> skippedNodes = new HashSet<>();
 
-        Promise<Void>[] promises = downstreamNodes.stream()
+        for (EdgeDefinition edge : wfDef.edges()) {
+            if (!edge.from().nodeId().equals(nodeId)) continue;
+
+            if (edge.condition() != null && edge.condition().branches() != null) {
+                // Conditional edge - evaluate each branch independently
+                Set<String> matchedBranches = new HashSet<>();
+                for (EdgeDefinition.Condition.Branch branch : edge.condition().branches()) {
+                    try {
+                        Object result = conditionEvaluator.evaluate(branch.expression(), context.nodeOutputs());
+                        if (Boolean.TRUE.equals(result)) {
+                            toTrigger.add(branch.to().nodeId());
+                            matchedBranches.add(branch.to().nodeId());
+                        }
+                    } catch (Exception e) {
+                        log.warn("[{}] Condition evaluation failed for branch: {}",
+                                context.sessionId(), branch.expression(), e);
+                    }
+                }
+
+                // Mark unmatched branches as skipped
+                for (EdgeDefinition.Condition.Branch branch : edge.condition().branches()) {
+                    if (!matchedBranches.contains(branch.to().nodeId())) {
+                        skippedNodes.add(branch.to().nodeId());
+                    }
+                }
+
+                // Handle onNoMatch for the default edge target
+                if (matchedBranches.isEmpty()) {
+                    String onNoMatch = edge.condition().onNoMatch();
+                    if ("default".equals(onNoMatch) && edge.to() != null) {
+                        toTrigger.add(edge.to().nodeId());
+                    }
+                }
+            } else if (edge.to() != null) {
+                // Unconditional edge
+                toTrigger.add(edge.to().nodeId());
+            }
+        }
+
+        // For skipped branch targets, mark their dependency on the source node as satisfied
+        // and propagate this to their downstream nodes
+        for (String skippedNodeId : skippedNodes) {
+            NodeInstance skippedNode = nodes.get(skippedNodeId);
+            if (skippedNode != null) {
+                skippedNode.depends.put(nodeId, true);
+            }
+            // Mark skipped node as a satisfied dependency for all its downstream nodes
+            for (String dnId : graph.getDirectDownstreamNodes(skippedNodeId)) {
+                NodeInstance dn = nodes.get(dnId);
+                if (dn != null) {
+                    dn.depends.put(skippedNodeId, true);
+                }
+            }
+        }
+
+        // Remove duplicates and skipped nodes
+        toTrigger.removeAll(skippedNodes);
+
+        if (toTrigger.isEmpty()) return;
+
+        Promise<Void>[] promises = toTrigger.stream()
+                .distinct()
                 .map(dn -> Promise.<Void>async(() -> {
                     executeNode(dn, nodeId, context, state, false);
                     return null;
