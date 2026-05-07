@@ -35,7 +35,10 @@ public class BashNodeExecutor implements NodeExecutor {
         Map<String, Object> argsPassing = (Map<String, Object>) configMap.get("argsPassing");
         String passingType = (String) argsPassing.get("type");
 
-        String[] args = {};
+        // Always pass script as first argument
+        var cmdArgs = new java.util.ArrayList<String>();
+        cmdArgs.add(scriptFile.getAbsolutePath());
+
         String stdinData = null;
         Map<String, String> env = new HashMap<>();
 
@@ -69,14 +72,14 @@ public class BashNodeExecutor implements NodeExecutor {
                             argArray[position != null ? position : argArray.length - 1] = template.replace("{{value}}", String.valueOf(value));
                         }
                     }
-                    args = argArray;
+                    cmdArgs.addAll(java.util.List.of(argArray));
                 }
             }
             case "file" -> {
                 String fileName = (String) argsPassing.getOrDefault("fileName", "input.json");
                 File inputFilePath = new File(context.tempBaseDir(), fileName);
                 objectMapper.writerWithDefaultPrettyPrinter().writeValue(inputFilePath, inputs);
-                args = new String[]{inputFilePath.getAbsolutePath()};
+                cmdArgs.add(inputFilePath.getAbsolutePath());
             }
         }
 
@@ -93,7 +96,7 @@ public class BashNodeExecutor implements NodeExecutor {
 
         Long timeout = (Long) configMap.get("timeout");
         ScriptRunner.Result result = scriptRunner.run(
-                interpreter, args, context.tempBaseDir(),
+                interpreter, cmdArgs.toArray(new String[0]), context.tempBaseDir(),
                 timeout != null ? timeout : 300000, env, stdinData);
 
         if (!result.success()) {

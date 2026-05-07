@@ -8,6 +8,7 @@ import com.orc.model.WorkflowDefinition;
 import com.orc.model.WorkflowDefinition.SchemaEntry;
 import org.jgrapht.Graph;
 import org.jgrapht.alg.connectivity.ConnectivityInspector;
+import org.jgrapht.alg.cycle.CycleDetector;
 import org.jgrapht.graph.DefaultDirectedGraph;
 import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.traverse.TopologicalOrderIterator;
@@ -112,10 +113,9 @@ public class WorkflowGraph {
     }
 
     private void validateDAG() {
-        try {
-            new TopologicalOrderIterator<>(graph);
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Graph contains cycles: " + e.getMessage(), e);
+        CycleDetector<String, DefaultEdge> detector = new CycleDetector<>(graph);
+        if (detector.detectCycles()) {
+            throw new RuntimeException("Graph contains cycles");
         }
     }
 

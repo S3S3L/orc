@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "name": "test-workflow",
+  "description": "Unit test workflow",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "bash",
+      "name": "Start",
+      "inputs": {},
+      "output": { "schema": { "type": "object" } },
+      "config": {
+        "script": "test/start.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "process",
+      "type": "bash",
+      "name": "Process",
+      "inputs": { "config": { "type": "object" } },
+      "output": { "schema": { "type": "object" } },
+      "config": {
+        "script": "test/process.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "success-path",
+      "type": "bash",
+      "name": "Success Path",
+      "inputs": { "config": { "type": "object" } },
+      "output": { "schema": { "type": "object" } },
+      "config": {
+        "script": "test/success.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    },
+    {
+      "id": "failure-path",
+      "type": "bash",
+      "name": "Failure Path",
+      "inputs": { "config": { "type": "object" } },
+      "output": { "schema": { "type": "object" } },
+      "config": {
+        "script": "test/failure.sh",
+        "argsPassing": { "type": "stdin" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-start-branch",
+      "from": { "nodeId": "start" },
+      "to": { "nodeId": "process", "input": "config" },
+      "condition": {
+        "branches": [
+          {
+            "expression": "outputs.start.status == 'success'",
+            "to": { "nodeId": "success-path", "input": "config" }
+          },
+          {
+            "expression": "outputs.start.status == 'failure'",
+            "to": { "nodeId": "failure-path", "input": "config" }
+          }
+        ],
+        "onNoMatch": "skip"
+      }
+    }
+  ]
+}
