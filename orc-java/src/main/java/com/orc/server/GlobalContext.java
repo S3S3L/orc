@@ -27,6 +27,10 @@ public class GlobalContext {
     private String storePath;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    public ObjectMapper objectMapper() {
+        return objectMapper;
+    }
+
     public void setStorePath(String baseDir) {
         this.storePath = new File(baseDir, ".sessions.json").getAbsolutePath();
         loadSessions();
