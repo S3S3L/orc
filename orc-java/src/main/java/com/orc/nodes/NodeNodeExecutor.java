@@ -33,6 +33,7 @@ public class NodeNodeExecutor implements NodeExecutor {
         String passingType = (String) argsPassing.get("type");
 
         List<String> args = new ArrayList<>();
+        args.add(scriptFile.getAbsolutePath());
         String stdinData = null;
 
         switch (passingType) {

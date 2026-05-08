@@ -33,6 +33,7 @@ public class PythonNodeExecutor implements NodeExecutor {
         String passingType = (String) argsPassing.get("type");
 
         java.util.List<String> args = new java.util.ArrayList<>();
+        args.add(scriptFile.getAbsolutePath());
         String stdinData = null;
 
         switch (passingType) {
