@@ -24,25 +24,41 @@ mvn package -DskipTests
 java -jar target/orc-java-0.1.0-SNAPSHOT.jar run --workflow examples/simple-pipeline.json
 ```
 
+> **注意**: Spring Shell 3.x 要求命令和选项之间用空格分隔，不支持 `=` 号形式。
+> 正确: `run --workflow path/to/file.json`
+> 错误: `--spring.shell.command=run --workflow=path/to/file.json`
+
 ### 启动 Web UI 服务
 
 ```bash
 java -jar target/orc-java-0.1.0-SNAPSHOT.jar serve --workflow examples/simple-pipeline.json --port 30080
 ```
 
-然后访问 `http://localhost:30080` 使用 React 前端界面。
+然后访问 `http://localhost:30080` 使用内置 React 前端界面（SPA 已嵌入 JAR）。
 
 ### 启动脚本
 
 项目提供了便捷的启动脚本：
 
 ```bash
-./scripts/start.sh     # 自动构建并启动服务（默认端口 30080）
-./scripts/stop.sh      # 停止服务
-./scripts/restart.sh   # 重启服务
+./scripts/start.sh                          # 启动 serve 模式（默认）
+MODE=run WORKFLOW=xxx ./scripts/start.sh    # 启动 run 模式（执行完自动退出）
+./scripts/stop.sh                           # 停止服务
+./scripts/restart.sh                        # 重启服务（保留 MODE/WORKFLOW）
 ```
 
-也可以通过环境变量覆盖端口：`SERVER_PORT=8080 ./scripts/start.sh`
+环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MODE` | `serve` | `serve`（Web UI）或 `run`（执行工作流） |
+| `SERVER_PORT` | `30080` | HTTP 端口 |
+| `WORKFLOW` | — | 工作流文件路径（run 模式必填） |
+| `OUTPUT` | `./output` | 节点输出目录 |
+| `WORKSPACE` | `./workspace` | 临时工作目录 |
+| `AUDIT` | `./audit` | 审计日志目录 |
+
+通过环境变量覆盖端口：`SERVER_PORT=8080 ./scripts/start.sh`
 
 ## 架构
 
@@ -208,9 +224,7 @@ java -jar target/orc-java-0.1.0-SNAPSHOT.jar run \
   --workspace ./workspace \
   --audit ./audit \
   --sessionId my-session-001 \
-  --cleanOldFiles false \
-  --nodeId null \
-  --single false
+  --cleanOldFiles false
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -224,11 +238,12 @@ java -jar target/orc-java-0.1.0-SNAPSHOT.jar run \
 | `--nodeId` | null | 从指定节点开始执行（恢复执行） |
 | `--single` | `false` | 仅执行指定节点，不触发下游 |
 
+> **提示**: 选项使用空格分隔（`--workflow xxx`），不使用等号（`--workflow=xxx`）。
+
 ### validate — 校验工作流定义
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar validate \
-  --workflow examples/simple-pipeline.json
+java -jar target/orc-java-0.1.0-SNAPSHOT.jar validate --workflow examples/simple-pipeline.json
 ```
 
 输出：
@@ -248,6 +263,8 @@ java -jar target/orc-java-0.1.0-SNAPSHOT.jar serve \
   --workspace ./workspace \
   --audit ./audit
 ```
+
+前端静态资源已嵌入 JAR 内，无需额外配置。通过 Web 界面可选择并加载工作流。
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -419,8 +436,9 @@ cd frontend && npx vite dev --port 5173
 
 ## 已知注意事项
 
-1. **Aviator 表达式**: 使用 `==` 而非 `===`，使用点号访问 `outputs.nodeId.field` 而非 `outputs['nodeId']`（Aviator 不支持单引号 map 访问）
-2. **脚本执行**: 所有脚本执行器（bash/python/node）始终将脚本文件作为首参数传递给解释器，stdin 仅用于数据传递
-3. **循环子图**: validator 表达式中使用 `outputs.nodeId` 点号形式访问子图内节点输出
-4. **端口冲突**: 使用 `serve` 命令前确保 30080 端口未被占用，可用 `lsof -ti:30080 | xargs kill -9` 清理
+1. **Spring Shell 3.x**: 选项必须空格分隔（`--workflow path`），不支持等号（`--workflow=path`）；`run` 是位置参数
+2. **Aviator 表达式**: 使用 `==` 而非 `===`，使用点号访问 `outputs.nodeId.field` 而非 `outputs['nodeId']`（Aviator 不支持单引号 map 访问）
+3. **脚本执行**: 所有脚本执行器（bash/python/node）始终将脚本文件作为首参数传递给解释器，stdin 仅用于数据传递
+4. **循环子图**: validator 表达式中使用 `outputs.nodeId` 点号形式访问子图内节点输出
 5. **幂等缓存**: 节点输出文件存在时跳过执行，重新执行需 `cleanOldFiles=true` 或手动删除输出目录
+6. **前端嵌入**: `frontend/dist/` 已复制到 `src/main/resources/static/`，前端 build 后需重新复制并重新 `mvn package`
