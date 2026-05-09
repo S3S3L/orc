@@ -1,11 +1,14 @@
 package com.orc.server.controller;
 
+import com.orc.model.ExecutionState;
+import com.orc.model.SessionSummary;
 import com.orc.model.WorkflowDefinition;
 import com.orc.server.GlobalContext;
 import com.orc.server.service.ExecutionService;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -25,7 +28,33 @@ public class SessionController {
     // GET /api/v1/sessions
     @GetMapping("/sessions")
     public Object getSessions() {
-        return globalContext.sessionHistory;
+        List<SessionSummary> result = new ArrayList<>();
+        // Merge live execution states with persisted session history
+        for (var entry : globalContext.executionStates.entrySet()) {
+            String sid = entry.getKey();
+            ExecutionState state = entry.getValue();
+            SessionSummary hist = globalContext.sessionHistory.stream()
+                    .filter(s -> s.id().equals(sid))
+                    .findFirst().orElse(null);
+            if (hist != null) {
+                result.add(new SessionSummary(
+                        sid, hist.workflowName(), state.status(),
+                        state.startTime(), state.complete() ? state.startTime() : null,
+                        hist.nodeCount(), null));
+            } else {
+                result.add(new SessionSummary(
+                        sid, "Unknown", state.status(),
+                        state.startTime(), state.complete() ? state.startTime() : null,
+                        0, null));
+            }
+        }
+        // Add persisted sessions that are not actively running
+        for (SessionSummary s : globalContext.sessionHistory) {
+            if (!globalContext.executionStates.containsKey(s.id())) {
+                result.add(s);
+            }
+        }
+        return result;
     }
 
     // POST /api/v1/sessions - Start a new workflow run
