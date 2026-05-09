@@ -4,6 +4,7 @@ APP_NAME="orc-java"
 PID_FILE="$BASE_DIR/logs/$APP_NAME.pid"
 LOG_FILE="$BASE_DIR/logs/$APP_NAME.log"
 SERVER_PORT="${SERVER_PORT:-30080}"
+MODE="${MODE:-serve}"
 
 mkdir -p "$BASE_DIR/logs"
 
@@ -25,6 +26,24 @@ if [ -z "$JAR_FILE" ]; then
 fi
 
 cd "$BASE_DIR"
-nohup java -jar "$JAR_FILE" --server.port="$SERVER_PORT" > "$LOG_FILE" 2>&1 &
+
+if [ "$MODE" = "run" ]; then
+    if [ -z "$WORKFLOW" ]; then
+        echo "Error: WORKFLOW env is required for run mode"
+        exit 1
+    fi
+    nohup java -jar "$JAR_FILE" run \
+        --workflow "$WORKFLOW" \
+        --output "${OUTPUT:-./output}" \
+        --workspace "${WORKSPACE:-./workspace}" \
+        --audit "${AUDIT:-./audit}" \
+        > "$LOG_FILE" 2>&1 &
+else
+    nohup java -jar "$JAR_FILE" \
+        --server.port="$SERVER_PORT" \
+        --spring.shell.noninteractive.enabled=false \
+        > "$LOG_FILE" 2>&1 &
+fi
+
 echo $! > "$PID_FILE"
-echo "$APP_NAME started (PID: $!) on port $SERVER_PORT"
+echo "$APP_NAME started in $MODE mode (PID: $!) on port $SERVER_PORT"

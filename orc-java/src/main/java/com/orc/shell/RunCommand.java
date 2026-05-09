@@ -7,6 +7,8 @@ import com.orc.model.ExecutionContext;
 import com.orc.model.ExecutionState;
 import com.orc.model.WorkflowDefinition;
 import com.orc.server.GlobalContext;
+import org.springframework.boot.SpringApplication;
+import org.springframework.context.ApplicationContext;
 import org.springframework.shell.standard.ShellComponent;
 import org.springframework.shell.standard.ShellMethod;
 import org.springframework.shell.standard.ShellOption;
@@ -19,9 +21,11 @@ public class RunCommand {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final GlobalContext globalContext;
+    private final ApplicationContext applicationContext;
 
-    public RunCommand(GlobalContext globalContext) {
+    public RunCommand(GlobalContext globalContext, ApplicationContext applicationContext) {
         this.globalContext = globalContext;
+        this.applicationContext = applicationContext;
     }
 
     @ShellMethod(key = "run", value = "Run a workflow")
@@ -64,10 +68,13 @@ public class RunCommand {
         try {
             executor.execute(state);
             System.out.println("[" + java.time.Instant.now() + "] [" + sid + "] Workflow completed successfully");
-            return "Workflow completed successfully";
         } catch (Exception e) {
             System.err.println("[" + java.time.Instant.now() + "] [" + sid + "] Workflow failed: " + e.getMessage());
-            throw e;
+            SpringApplication.exit(applicationContext, () -> 1);
+            System.exit(1);
         }
+        SpringApplication.exit(applicationContext, () -> 0);
+        System.exit(0);
+        return "unreachable";
     }
 }
