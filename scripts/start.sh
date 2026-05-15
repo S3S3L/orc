@@ -13,24 +13,25 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     exit 0
 fi
 
-JAR_FILE=$(ls "$BASE_DIR"/target/orc-java-*.jar 2>/dev/null | grep -v '.original' | head -1)
+JAR_FILE=$(ls "$BASE_DIR"/orc-java/target/orc-java-*.jar 2>/dev/null | grep -v '.original' | head -1)
 
 NEED_BUILD=false
 if [ -z "$JAR_FILE" ]; then
     NEED_BUILD=true
 elif [ -n "$JAR_FILE" ]; then
-    # Rebuild if source files or static assets are newer than JAR
-    NEWER_SOURCES=$(find "$BASE_DIR/src" -newer "$JAR_FILE" 2>/dev/null | head -1)
-    NEWER_POM=$(find "$BASE_DIR/pom.xml" -newer "$JAR_FILE" 2>/dev/null | head -1)
-    if [ -n "$NEWER_SOURCES" ] || [ -n "$NEWER_POM" ]; then
+    # Rebuild if source files, pom, or frontend are newer than JAR
+    NEWER_SOURCES=$(find "$BASE_DIR/orc-java/src" -newer "$JAR_FILE" 2>/dev/null | head -1)
+    NEWER_POM=$(find "$BASE_DIR/orc-java/pom.xml" -newer "$JAR_FILE" 2>/dev/null | head -1)
+    NEWER_FRONTEND=$(find "$BASE_DIR/frontend/src" -newer "$JAR_FILE" 2>/dev/null | head -1)
+    if [ -n "$NEWER_SOURCES" ] || [ -n "$NEWER_POM" ] || [ -n "$NEWER_FRONTEND" ]; then
         NEED_BUILD=true
     fi
 fi
 
 if [ "$NEED_BUILD" = true ]; then
     echo "Building project..."
-    cd "$BASE_DIR" && mvn package -DskipTests -q
-    JAR_FILE=$(ls "$BASE_DIR"/target/orc-java-*.jar 2>/dev/null | grep -v '.original' | head -1)
+    cd "$BASE_DIR/orc-java" && mvn package -DskipTests -q
+    JAR_FILE=$(ls "$BASE_DIR"/orc-java/target/orc-java-*.jar 2>/dev/null | grep -v '.original' | head -1)
 fi
 
 if [ -z "$JAR_FILE" ]; then

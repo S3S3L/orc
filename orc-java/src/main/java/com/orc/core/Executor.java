@@ -49,6 +49,7 @@ public class Executor {
             executors.put("node", (NodeExecutor) Class.forName("com.orc.nodes.NodeNodeExecutor").getDeclaredConstructor().newInstance());
             executors.put("claude-code", (NodeExecutor) Class.forName("com.orc.nodes.ClaudeCodeNodeExecutor").getDeclaredConstructor().newInstance());
             executors.put("loop", (NodeExecutor) Class.forName("com.orc.nodes.LoopNodeExecutor").getDeclaredConstructor().newInstance());
+            executors.put("file", (NodeExecutor) Class.forName("com.orc.nodes.FileNodeExecutor").getDeclaredConstructor().newInstance());
         } catch (Exception e) {
             log.warn("Failed to register some node executors: {}", e.getMessage());
         }

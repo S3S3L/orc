@@ -20,7 +20,7 @@
         "id": { "type": "string" },
         "type": {
           "type": "string",
-          "enum": ["bash", "python", "node", "claude-code", "loop"]
+          "enum": ["bash", "python", "node", "claude-code", "loop", "file"]
         },
         "name": { "type": "string" },
         "description": { "type": "string" },

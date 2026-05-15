@@ -6,7 +6,8 @@ public enum NodeType {
     node,
     @com.fasterxml.jackson.annotation.JsonProperty("claude-code")
     claude_code,
-    loop;
+    loop,
+    file;
 
     @com.fasterxml.jackson.annotation.JsonValue
     public String toValue() {

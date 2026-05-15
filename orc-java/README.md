@@ -21,7 +21,7 @@ mvn package -DskipTests
 ### 运行工作流
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar run --workflow examples/simple-pipeline.json
+java -jar target/orc-java-0.8.0-SNAPSHOT.jar run --workflow examples/simple-pipeline.json
 ```
 
 > **注意**: Spring Shell 3.x 要求命令和选项之间用空格分隔，不支持 `=` 号形式。
@@ -31,20 +31,29 @@ java -jar target/orc-java-0.1.0-SNAPSHOT.jar run --workflow examples/simple-pipe
 ### 启动 Web UI 服务
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar serve --workflow examples/simple-pipeline.json --port 30080
+java -jar target/orc-java-0.8.0-SNAPSHOT.jar serve --workflow examples/simple-pipeline.json --port 30080
 ```
 
 然后访问 `http://localhost:30080` 使用内置 React 前端界面（SPA 已嵌入 JAR）。
 
 ### 启动脚本
 
-项目提供了便捷的启动脚本：
+项目提供了便捷的启动脚本（位于项目根目录的 `scripts/`）：
 
 ```bash
-./scripts/start.sh                          # 启动 serve 模式（默认）
-MODE=run WORKFLOW=xxx ./scripts/start.sh    # 启动 run 模式（执行完自动退出）
-./scripts/stop.sh                           # 停止服务
-./scripts/restart.sh                        # 重启服务（保留 MODE/WORKFLOW）
+cd .. && ./scripts/start.sh                          # 启动 serve 模式（默认）
+cd .. && MODE=run WORKFLOW=xxx ./scripts/start.sh    # 启动 run 模式（执行完自动退出）
+cd .. && ./scripts/stop.sh                           # 停止服务
+cd .. && ./scripts/restart.sh                        # 重启服务（保留 MODE/WORKFLOW）
+```
+
+或者直接在项目根目录运行：
+
+```bash
+./scripts/start.sh
+MODE=run WORKFLOW=xxx ./scripts/start.sh
+./scripts/stop.sh
+./scripts/restart.sh
 ```
 
 环境变量：
@@ -218,7 +227,7 @@ MODE=run WORKFLOW=xxx ./scripts/start.sh    # 启动 run 模式（执行完自�
 ### run — 执行工作流
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar run \
+java -jar target/orc-java-0.8.0-SNAPSHOT.jar run \
   --workflow examples/simple-pipeline.json \
   --output ./output \
   --workspace ./workspace \
@@ -243,7 +252,7 @@ java -jar target/orc-java-0.1.0-SNAPSHOT.jar run \
 ### validate — 校验工作流定义
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar validate --workflow examples/simple-pipeline.json
+java -jar target/orc-java-0.8.0-SNAPSHOT.jar validate --workflow examples/simple-pipeline.json
 ```
 
 输出：
@@ -256,7 +265,7 @@ Workflow is valid
 ### serve — 启动 Web 服务
 
 ```bash
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar serve \
+java -jar target/orc-java-0.8.0-SNAPSHOT.jar serve \
   --workflow examples/simple-pipeline.json \
   --port 30080 \
   --output ./output \
@@ -359,78 +368,43 @@ curl -X POST 'http://localhost:30080/api/v1/nodes/process/run' \
 ## 项目结构
 
 ```
-orc-java/
-├── pom.xml                          # Maven 配置
-├── scripts/
-│   ├── start.sh                     # 启动脚本
-│   ├── stop.sh                      # 停止脚本
-│   └── restart.sh                   # 重启脚本
-├── examples/
-│   ├── simple-pipeline.json         # 简单流水线示例
-│   ├── complex-pipeline.json        # 复杂流水线示例
-│   └── scripts/                     # 示例脚本
-├── src/main/java/com/orc/
-│   ├── OrcApplication.java          # Spring Boot 启动类
-│   ├── core/                        # 核心引擎
-│   │   ├── WorkflowGraph.java       # JGraphT DAG 构建
-│   │   ├── Executor.java            # 执行引擎
-│   │   ├── NodeExecutor.java        # 节点执行器接口
-│   │   └── NodeInstance.java        # 节点运行时状态
-│   ├── model/                       # 数据模型
-│   │   ├── NodeType.java            # 节点类型枚举
-│   │   ├── NodeStatus.java          # 节点状态枚举
-│   │   ├── NodeDefinition.java      # 节点定义
-│   │   ├── EdgeDefinition.java      # 边定义
-│   │   ├── WorkflowDefinition.java  # 工作流定义
-│   │   ├── ExecutionContext.java    # 执行上下文
-│   │   └── ExecutionState.java      # 执行状态
-│   ├── nodes/                       # 节点执行器实现
-│   │   ├── BashNodeExecutor.java
-│   │   ├── PythonNodeExecutor.java
-│   │   ├── NodeNodeExecutor.java
-│   │   ├── ClaudeCodeNodeExecutor.java
-│   │   └── LoopNodeExecutor.java
-│   ├── shell/                       # CLI 命令
-│   │   ├── RunCommand.java
-│   │   ├── ValidateCommand.java
-│   │   └── ServeCommand.java
-│   ├── server/                      # Web 服务
-│   │   ├── GlobalContext.java       # 全局状态
-│   │   ├── controller/              # REST 控制器
-│   │   └── service/                 # 业务服务
-│   ├── runtime/                     # 运行时工具
-│   │   └── AuditLogger.java
-│   ├── schema/                      # Schema 校验
-│   │   ├── SchemaValidator.java
-│   │   └── SchemaLoader.java
-│   └── util/                        # 工具类
-│       ├── ConditionEvaluator.java  # Aviator 条件求值
-│       └── ScriptRunner.java        # Commons Exec 封装
-└── src/test/java/com/orc/           # 单元测试
+orc/                              # 项目根目录
+├── scripts/                      # 启动脚本
+│   ├── start.sh
+│   ├── stop.sh
+│   └── restart.sh
+├── frontend/                     # React 前端（Vite + MUI + Cytoscape）
+├── orc-java/                     # 本模块
+│   ├── pom.xml
+│   ├── src/main/java/com/orc/
+│   │   ├── OrcApplication.java
+│   │   ├── core/                 # 核心引擎
+│   │   ├── model/                # 数据模型
+│   │   ├── nodes/                # 节点执行器
+│   │   ├── server/               # REST API
+│   │   ├── shell/                # CLI 命令
+│   │   └── util/                 # 工具类
+│   └── src/main/resources/
+│       ├── application.yml
+│       └── graph-schema.json
+├── examples/                     # 示例工作流
+└── output/, workspace/, audit/   # 运行时目录
 ```
 
-## 常用命令
+## 构建说明
 
 ```bash
-# 编译
-mvn compile
+cd orc-java && mvn clean package -DskipTests
+```
 
-# 运行测试
-mvn test
+`mvn package` 会自动完成：
+1. 安装 Node.js 到 `target/`（仅首次）
+2. 构建前端（`npm install` + `npm run build`）
+3. 将前端产物复制到 JAR 静态资源
+4. 打包 Spring Boot 可执行 JAR
 
-# 打包（跳过测试）
-mvn package -DskipTests
-
-# 运行工作流
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar run --workflow examples/simple-pipeline.json
-
-# 校验工作流
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar validate --workflow examples/simple-pipeline.json
-
-# 启动 Web 服务
-java -jar target/orc-java-0.1.0-SNAPSHOT.jar serve --workflow examples/simple-pipeline.json --port 30080
-
-# 前端开发（需先进入 frontend/ 目录）
+前端开发时可单独运行：
+```bash
 cd frontend && npx vite dev --port 5173
 ```
 
@@ -441,4 +415,4 @@ cd frontend && npx vite dev --port 5173
 3. **脚本执行**: 所有脚本执行器（bash/python/node）始终将脚本文件作为首参数传递给解释器，stdin 仅用于数据传递
 4. **循环子图**: validator 表达式中使用 `outputs.nodeId` 点号形式访问子图内节点输出
 5. **幂等缓存**: 节点输出文件存在时跳过执行，重新执行需 `cleanOldFiles=true` 或手动删除输出目录
-6. **前端嵌入**: `frontend/dist/` 已复制到 `src/main/resources/static/`，前端 build 后需重新复制并重新 `mvn package`
+6. **前端构建**: `mvn package` 自动构建前端并嵌入 JAR，无需手动复制。前端 dev 开发时单独运行 `cd frontend && npx vite dev`
