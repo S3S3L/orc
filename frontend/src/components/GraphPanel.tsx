@@ -29,7 +29,8 @@ export const GraphPanel = forwardRef<GraphPanelRef, GraphPanelProps>(({
       const node = cy.getElementById(nodeId);
       if (!node) return;
 
-      node.data('status', status).updateStyle();
+      node.data('status', status);
+      cy.style().update();
     },
     fit: () => cyRef.current?.fit(),
     cy: cyRef.current,
@@ -100,7 +101,7 @@ export const GraphPanel = forwardRef<GraphPanelRef, GraphPanelProps>(({
 
     // Build stylesheet - order matters for cascade priority
     // Status-based rules come AFTER type-based rules so they override
-    const styleRules = [
+    const styleRules: cytoscape.StylesheetStyle[] = [
       // Base node style
       {
         selector: 'node',
