@@ -8,9 +8,11 @@ import { GraphPanel, GraphPanelRef } from './components/GraphPanel';
 import { NodeDetail } from './components/NodeDetail';
 import { ClaudeReport } from './components/ClaudeReport';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { EditorLayout } from './components/EditorLayout';
 import { useWorkflow } from './hooks/useWorkflow';
 import { useSessionList } from './hooks/useSessionList';
 import { useSessionPolling } from './hooks/useSessionPolling';
+import { useWorkflowEditor } from './hooks/useWorkflowEditor';
 import type { NodeStatus, WorkflowDefinition } from './types/api';
 
 export default function App() {
@@ -20,6 +22,10 @@ export default function App() {
   const [expandedLoopNodeId, setExpandedLoopNodeId] = useState<string | null>(null);
   const [baseWorkflow, setBaseWorkflow] = useState<WorkflowDefinition | null>(null);
   const [claudeReport, setClaudeReport] = useState<{ nodeId: string; url: string } | null>(null);
+
+  // Editor mode
+  const [editorMode, setEditorMode] = useState(false);
+  const editor = useWorkflowEditor();
 
   const { workflow, loading: workflowLoading, reload: reloadWorkflow } = useWorkflow(expandedLoopNodeId);
   const { sessions, reload: reloadSessions } = useSessionList();
@@ -98,6 +104,35 @@ export default function App() {
   // Active session info
   const activeSession = sessions.find(s => s.id === currentSessionId);
 
+  // Editor mode: render full-screen editor
+  if (editorMode) {
+    return (
+      <ThemeProvider theme={darkTheme}>
+        <CssBaseline />
+        <LoadingOverlay visible={editor.loading} />
+        <EditorLayout
+          onBack={() => {
+            setEditorMode(false);
+          }}
+          onSave={() => {
+            if (editor.currentId && editor.workflow) {
+              editor.saveWorkflow(editor.currentId, editor.workflow);
+            }
+          }}
+          workflow={editor.workflow}
+          onWorkflowChange={editor.setWorkflow}
+          saving={editor.loading}
+          workflowList={editor.workflowList}
+          currentWorkflowId={editor.currentId}
+          onWorkflowSelect={(id) => { editor.loadWorkflow(id); }}
+          onWorkflowCreate={async (name) => { await editor.createWorkflow(name); }}
+          onWorkflowDelete={async (id) => { await editor.deleteWorkflow(id); }}
+          onWorkflowCopy={async (exampleId) => { await editor.copyExample(exampleId); }}
+        />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -110,6 +145,10 @@ export default function App() {
         onRunNode={() => handleRunNode()}
         onRefresh={handleRefresh}
         onFitGraph={handleFitGraph}
+        onOpenEditor={() => {
+          setEditorMode(true);
+          editor.loadWorkflowList();
+        }}
         onToggleSessionPanel={() => {
           setSessionPanelVisible(!sessionPanelVisible);
           if (!sessionPanelVisible) reloadSessions();

@@ -1,3 +1,5 @@
+import type { WorkflowMeta, WorkflowDefinition } from '../types/api';
+
 const BASE_URL = ''; // Relative URL, proxied by Vite dev server
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -39,4 +41,27 @@ export const api = {
     request<string>(`/api/v1/nodes/${nodeId}/claude-html?sessionId=${sessionId}`),
   getLoopSubgraph: (nodeId: string) =>
     request<import('../types/api').SubgraphResponse>(`/api/v1/loops/${nodeId}/subgraph`),
+
+  // Editor APIs
+  listWorkflows: () => request<WorkflowMeta[]>('/api/v1/editor/workflows'),
+  createWorkflow: (name: string) =>
+    request<{ id: string }>('/api/v1/editor/workflows', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  copyExample: (exampleId: string) =>
+    request<{ id: string }>(`/api/v1/editor/workflows/${exampleId}/copy`, {
+      method: 'POST',
+    }),
+  getWorkflowById: (id: string) =>
+    request<WorkflowDefinition>(`/api/v1/editor/workflow/${id}`),
+  saveWorkflow: (id: string, workflow: WorkflowDefinition) =>
+    request<{ status: string }>(`/api/v1/editor/workflow/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(workflow),
+    }),
+  deleteWorkflow: (id: string) =>
+    request<void>(`/api/v1/editor/workflow/${id}`, {
+      method: 'DELETE',
+    }),
 };

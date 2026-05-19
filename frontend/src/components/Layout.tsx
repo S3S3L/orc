@@ -7,6 +7,8 @@ import FitScreenIcon from '@mui/icons-material/FitScreen';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import CloseIcon from '@mui/icons-material/Close';
 
+import EditIcon from '@mui/icons-material/Edit';
+
 interface LayoutProps {
   sessionPanelContent: ReactNode;
   graphPanelContent: ReactNode;
@@ -17,6 +19,7 @@ interface LayoutProps {
   onRefresh: () => void;
   onFitGraph: () => void;
   onToggleSessionPanel: () => void;
+  onOpenEditor?: () => void;
   sessionPanelVisible: boolean;
   runDisabled?: boolean;
 }
@@ -31,6 +34,7 @@ export function Layout({
   onRefresh,
   onFitGraph,
   onToggleSessionPanel,
+  onOpenEditor,
   sessionPanelVisible,
   runDisabled,
 }: LayoutProps) {
@@ -110,6 +114,16 @@ export function Layout({
               <FolderOpenIcon />
             </IconButton>
           </Tooltip>
+          {onOpenEditor && (
+            <Tooltip title="Workflow Editor">
+              <IconButton
+                onClick={onOpenEditor}
+                sx={{ bgcolor: '#9b59b6', color: '#fff', '&:hover': { bgcolor: '#8e44ad' } }}
+              >
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
 
         {graphPanelContent}

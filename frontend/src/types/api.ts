@@ -1,3 +1,10 @@
+export interface WorkflowMeta {
+  id: string;
+  name: string;
+  path: string;
+  readOnly: boolean;
+}
+
 export interface WorkflowDefinition {
   version: string;
   name: string;
